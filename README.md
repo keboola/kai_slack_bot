@@ -12,7 +12,8 @@ Instructions on how to install and set up the project.
     CONFLUENCE_URL=https://keboola.atlassian.net/
     CONFLUENCE_USERNAME=harry.potter@hogwarts.com  
     CONFLUENCE_PASSWORD=pwd  
-    OPENAI_API_KEY=api_key  
+    OPENAI_API_KEY=api_key
+    OPENAI_API_BASE=https://my-azure-ai-service.openai.azure.com/
     APP_PORT=3000
 
 

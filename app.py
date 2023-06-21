@@ -1,5 +1,6 @@
 import os
 import logging
+import streamlit as sl
 from decouple import config
 from slack_bolt import App
 from src.tools.confluence_search.confluence_search import conflu_search
@@ -85,4 +86,6 @@ app.event("app_mention")(handle_message_events)
 app.event("message")(handle_message_events)
 
 if __name__ == "__main__":
+    sl.output("Hello KAI")
     app.start(app_port)
+    sl.output("KAI is running")
