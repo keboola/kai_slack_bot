@@ -11,7 +11,7 @@ slack_bot_token = sl.secrets["SLACK_BOT_TOKEN"]
 slack_bot_secret = sl.secrets["SLACK_SIGNING_SECRET"]
 app_port = int(sl.secrets["APP_PORT"])
 
-sl.info("APP PORT " + app_port)
+sl.info("APP PORT " + str(app_port))
 
 app = App(
     token=slack_bot_token,
