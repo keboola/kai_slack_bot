@@ -86,6 +86,6 @@ app.event("app_mention")(handle_message_events)
 app.event("message")(handle_message_events)
 
 if __name__ == "__main__":
-    sl.output("Hello KAI")
+    sl.info("Starting up the bot ...")
     app.start(app_port)
-    sl.output("KAI is running")
+    sl.success("KAI bot is online")
