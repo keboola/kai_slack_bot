@@ -19,8 +19,6 @@ app = App(
     signing_secret=slack_bot_secret
 )
 
-
-
 def publish_home_tab(client, event, logger):
     try:
         client.views_publish(
@@ -87,9 +85,12 @@ def handle_message_events(client, event):
 with rd.stdout, rd.stderr(format='markdown', to=st.sidebar):
     app.event("app_mention")(handle_message_events)
     app.event("message")(handle_message_events)
+    print('set the events connection')
 
 if __name__ == "__main__":
     st.info("Starting up the bot ...")
     with rd.stdout, rd.stderr(format='markdown', to=st.sidebar):
+        print('starting the slack app')
+        print('some fake error', file=sys.stderr)
         app.start(app_port)
     st.success("KAI bot is online")
