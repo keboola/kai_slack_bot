@@ -7,7 +7,7 @@ from decouple import config
 from typing import Union
 import logging
 import uuid
-import streamlit as sl
+import streamlit as st
 
 confluence = Confluence(
     url=config("CONFLUENCE_URL"),
@@ -119,6 +119,6 @@ def conflu_search(search: str) -> Union[GPTVectorStoreIndex, None]:
 
 
 if __name__ == "__main__":
-    os.environ["OPENAI_API_KEY"] = sl.secrets["OPENAI_API_KEY"]
-    os.environ["OPENAI_API_BASE"] = sl.secrets["OPENAI_API_BASE"]
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+    os.environ["OPENAI_API_BASE"] = st.secrets["OPENAI_API_BASE"]
     conflu_search("What is the complete BYODB process?")
