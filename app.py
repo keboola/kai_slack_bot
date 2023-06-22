@@ -1,16 +1,15 @@
 import os
 import logging
 import streamlit as sl
-from decouple import config
 from slack_bolt import App
 from src.tools.confluence_search.confluence_search import conflu_search
 
 logging.basicConfig(level=logging.INFO)
 
-os.environ["OPENAI_API_KEY"] = config("OPENAI_API_KEY")
-slack_bot_token = config("SLACK_BOT_TOKEN")
-slack_bot_secret = config("SLACK_SIGNING_SECRET")
-app_port = int(config("APP_PORT"))
+os.environ["OPENAI_API_KEY"] = sl.secrets["OPENAI_API_KEY"]
+slack_bot_token = sl.secrets["SLACK_BOT_TOKEN"]
+slack_bot_secret = sl.secrets["SLACK_SIGNING_SECRET"]
+app_port = int(sl.secrets["APP_PORT"])
 
 app = App(
     token=slack_bot_token,
