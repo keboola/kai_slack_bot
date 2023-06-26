@@ -12,8 +12,6 @@ slack_bot_token = st.secrets["SLACK_BOT_TOKEN"]
 slack_bot_secret = st.secrets["SLACK_SIGNING_SECRET"]
 app_port = int(st.secrets["APP_PORT"])
 
-st.info("APP PORT " + str(app_port))
-
 app = App(
     token=slack_bot_token,
     signing_secret=slack_bot_secret
@@ -89,8 +87,6 @@ with rd.stdout, rd.stderr(format='markdown', to=st.sidebar):
 
 if __name__ == "__main__":
     st.info("Starting up the bot ...")
-    with rd.stdout, rd.stderr(format='markdown', to=st.sidebar):
-        print('starting the slack app')
-        print('some fake error', file=sys.stderr)
-        app.start(app_port)
-    st.success("KAI bot is online")
+    print('some fake error', file=sys.stderr)
+    app.start(app_port)
+
