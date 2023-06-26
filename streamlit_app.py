@@ -1,5 +1,5 @@
 import streamlit as st
 
-import sys.subprocess
+import subprocess
 
 subprocess.run(["python3", "app.py"], capture_output=True)
