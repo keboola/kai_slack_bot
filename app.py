@@ -1,21 +1,21 @@
-import os
+import os, sys
 import logging
-from decouple import config
+import streamlit as st
 from slack_bolt import App
 from src.tools.confluence_search.confluence_search import conflu_search
+import src.tools.redirect as rd
 
 logging.basicConfig(level=logging.INFO)
 
-os.environ["OPENAI_API_KEY"] = config("OPENAI_API_KEY")
-slack_bot_token = config("SLACK_BOT_TOKEN")
-slack_bot_secret = config("SLACK_SIGNING_SECRET")
-app_port = int(config("APP_PORT"))
+os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+slack_bot_token = st.secrets["SLACK_BOT_TOKEN"]
+slack_bot_secret = st.secrets["SLACK_SIGNING_SECRET"]
+app_port = int(st.secrets["APP_PORT"])
 
 app = App(
     token=slack_bot_token,
     signing_secret=slack_bot_secret
 )
-
 
 def publish_home_tab(client, event, logger):
     try:
@@ -80,9 +80,13 @@ def handle_message_events(client, event):
         text=f"Hi <@{event['user']}> :wave:\n{response}"
     )
 
-
-app.event("app_mention")(handle_message_events)
-app.event("message")(handle_message_events)
+with rd.stdout, rd.stderr(format='markdown', to=st.sidebar):
+    app.event("app_mention")(handle_message_events)
+    app.event("message")(handle_message_events)
+    print('set the events connection')
 
 if __name__ == "__main__":
+    st.info("Starting up the bot ...")
+    print('some fake error', file=sys.stderr)
     app.start(app_port)
+

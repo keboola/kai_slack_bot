@@ -1,12 +1,13 @@
 from atlassian import Confluence, errors
 from llama_index import SimpleDirectoryReader, GPTVectorStoreIndex
-from langchain.llms import OpenAI
+from langchain.llms import AzureOpenAI
 import os
 import sys
 from decouple import config
 from typing import Union
 import logging
 import uuid
+import streamlit as st
 
 confluence = Confluence(
     url=config("CONFLUENCE_URL"),
@@ -56,7 +57,7 @@ def create_unique_folder():
 
 
 def generate_cql_query_keywords(input_text: str) -> str:
-    llm = OpenAI()
+    llm = AzureOpenAI(engine="kai-bot")
     response = llm.predict(pre_prompt + input_text)
     cql_query = response.replace("\n", "").strip(" ")
     return cql_query
@@ -118,5 +119,6 @@ def conflu_search(search: str) -> Union[GPTVectorStoreIndex, None]:
 
 
 if __name__ == "__main__":
-    os.environ["OPENAI_API_KEY"] = config("OPENAI_API_KEY")
+    os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+    os.environ["OPENAI_API_BASE"] = st.secrets["OPENAI_API_BASE"]
     conflu_search("What is the complete BYODB process?")
