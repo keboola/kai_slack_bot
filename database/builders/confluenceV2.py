@@ -2,6 +2,7 @@ import os
 import pickle
 import re
 import logging
+from tqdm import tqdm
 import json
 import time
 import openai
@@ -10,7 +11,6 @@ from bs4 import BeautifulSoup
 from atlassian import Confluence
 import pinecone
 from datetime import datetime
-
 
 from llama_index import (
     GPTVectorStoreIndex,
@@ -34,17 +34,18 @@ from llama_index.node_parser.extractors import (
 )
 from llama_index.langchain_helpers.text_splitter import TokenTextSplitter
 
-openai.api_key=os.getenv('OPENAI_API_KEY')
+openai.api_key = os.getenv('OPENAI_API_KEY')
 
 
 class ConfluenceDataExtractor:
-    def __init__(self, confluence_url, confluence_username, confluence_password, save_folder):
+    def __init__(self, confluence_url, confluence_username, confluence_password, datadir):
+        self.datadir = datadir
         self.confluence = Confluence(
             url=confluence_url, username=confluence_username, password=confluence_password
         )
-        self.save_folder = save_folder
 
-    def sanitize_filename(self, filename):
+    @staticmethod
+    def sanitize_filename(filename):
         return re.sub(r"[/\\]", "_", filename)
 
     def save_results(self, results, metadata, directory):
@@ -93,7 +94,7 @@ class ConfluenceDataExtractor:
 
             content = self.confluence.get_space_content(space["key"])
             while True:
-                subdir = os.path.join(self.save_folder, space["name"])
+                subdir = os.path.join(self.datadir, "data", space["name"])
                 os.makedirs(subdir, exist_ok=True)
 
                 page = content.get("page")
@@ -116,8 +117,8 @@ class ConfluenceDataExtractor:
                         with open(metadata_filename, "r", encoding="utf-8") as file:
                             existing_metadata = json.load(file)
                             if (
-                                 metadata["LastUpdatedDate"]
-                                == existing_metadata.get("LastUpdatedDate")
+                                    metadata["LastUpdatedDate"]
+                                    == existing_metadata.get("LastUpdatedDate")
                             ):
                                 logging.info(
                                     f"Document '{result['title']}' is up-to-date. Skipping download."
@@ -145,8 +146,8 @@ class ConfluenceDataExtractor:
                             with open(metadata_filename, "r", encoding="utf-8") as file:
                                 existing_metadata = json.load(file)
                                 if (
-                                    metadata["LastUpdatedDate"]
-                                    == existing_metadata.get("LastUpdatedDate")
+                                        metadata["LastUpdatedDate"]
+                                        == existing_metadata.get("LastUpdatedDate")
                                 ):
                                     logging.info(
                                         f"Document '{result['title']}' is up-to-date. Skipping download."
@@ -158,11 +159,12 @@ class ConfluenceDataExtractor:
                     break
 
 
-
 class DocumentIndexCreator:
-    def __init__(self, save_folder, index_filename, batch_size=100):
-        self.save_folder = save_folder
-        self.index_filename = index_filename
+    def __init__(self, datadir, index_name, batch_size=100):
+        self.datadir = datadir
+        self.runtimes_json_path = os.path.join(self.datadir, "runtimes.json")
+        self.index_name = index_name
+        self.index_filename = f"{index_name}_index.pkl"
         self.batch_size = batch_size
         self.doc_titles = []
         self.doc_paths = []
@@ -187,18 +189,21 @@ class DocumentIndexCreator:
         self.node_parser = SimpleNodeParser(
             text_splitter=self.text_splitter, metadata_extractor=self.metadata_extractor
         )
-        self.last_runtime = self.load_last_runtimes()
+        self.last_runtimes = self.load_last_runtimes()
 
         self.load_documents()
-    
-    def sanitize_filename(self, filename):
+
+    @staticmethod
+    def sanitize_filename(filename):
         return re.sub(r"[/\\]", "_", filename)
-    
-    def read_file_as_string(self, file_path):
+
+    @staticmethod
+    def read_file_as_string(file_path):
         with open(file_path, "r", encoding="utf-8") as file:
             return file.read()
 
-    def get_file_metadata(self, file_path):
+    def get_file_metadata(self, file_path) -> dict:
+        """Returns article metadata from saved json."""
         metadata_path = file_path.replace(".txt", ".json")
         md = self.read_file_as_string(metadata_path)
         md = json.loads(md)
@@ -207,22 +212,32 @@ class DocumentIndexCreator:
         return {}
 
     def load_last_runtimes(self):
-        if os.path.exists("runtimes.json"):
-            with open("runtimes.json", "r") as file:
+        if os.path.exists(self.runtimes_json_path):
+            with open(self.runtimes_json_path, "r") as file:
                 return json.load(file).get("LastRuntime", {})
+        logging.warning("runtime.json not found. Full sync will be needed.")
         return {}
 
-
     def update_last_runtime(self, doc_path):
-        self.last_runtime[doc_path] = time.time() # Update the specific document's last runtime
-        self.save_last_runtimes()
+        current_ts = time.time()
+        self.last_runtimes[doc_path] = current_ts
+        self.save_last_runtime(doc_path, current_ts)
 
-    def save_last_runtimes(self):
-        with open("runtimes.json", "w") as file:
-            json.dump({"LastRuntime": self.last_runtime}, file) # Sa
+    def save_last_runtime(self, path, current_ts):
+        if os.path.exists(self.runtimes_json_path):
+            with open(self.runtimes_json_path, "r") as file:
+                data = json.load(file)
+        else:
+            data = {}
+
+        data[path] = current_ts
+
+        with open(self.runtimes_json_path, "w") as file:
+            json.dump(data, file)
 
     def load_documents(self):
-        for dirpath, dirnames, filenames in os.walk(self.save_folder):
+        save_folder = os.path.join(self.datadir, "data")
+        for dirpath, dirnames, filenames in os.walk(save_folder):
             for filename in filenames:
                 if filename.endswith(".txt"):
                     subdir_name = os.path.basename(dirpath)
@@ -235,15 +250,13 @@ class DocumentIndexCreator:
                     )
                     metadata = self.get_file_metadata(metadata_path)
 
-                    last_updated_date_str = metadata.get("LastUpdatedDate", "")
-                    if last_updated_date_str:
-                        last_updated_date = datetime.fromisoformat(last_updated_date_str[:-1])
-                        last_runtime = datetime.fromtimestamp(self.last_runtime.get(doc_path, 0)) # Use the specific runtime
-                        if last_updated_date > last_runtime:
-                            self.doc_titles.append(subdir_name + " - " + file_name)
-                            self.doc_paths.append(doc_path)
-
-
+                    last_updated_date = metadata.get("LastUpdatedDate", "2020-01-01T00:00:00.000Z")
+                    last_updated_date = datetime.fromisoformat(last_updated_date[:-1])
+                    last_sync = datetime.fromtimestamp(
+                        self.last_runtimes.get(doc_path, 0))  # Use the specific runtime
+                    if last_updated_date > last_sync:
+                        self.doc_titles.append(subdir_name + " - " + file_name)
+                        self.doc_paths.append(doc_path)
 
     def index_documents(self):
         nodes = []
@@ -253,7 +266,6 @@ class DocumentIndexCreator:
                 extra_info = self.get_file_metadata(path)
 
                 nodes.append(Document(text=text, doc_id=title, extra_info=extra_info))
-                print("Document added: " + title)
 
                 if len(nodes) >= self.batch_size:
                     self.process_batch(nodes)
@@ -269,22 +281,17 @@ class DocumentIndexCreator:
         set_global_service_context(service_context)
 
         start = time.time()
-        print(time.time())
-        
         parsed_nodes = self.node_parser.get_nodes_from_documents(nodes, show_progress=True)
+        logging.info(f"{str(len(parsed_nodes))} nodes parsed in: {time.time() - start}")
 
-        print(time.time() - start)
-        print("Nodes added: " + str(len(parsed_nodes)))
-        for node in parsed_nodes:
-            doc_path = node.ref_doc_id # Assuming ref_doc_id contains the document path
+        for node in tqdm(parsed_nodes, desc="Updating last run times"):
+            doc_path = node.ref_doc_id  # Assuming ref_doc_id contains the document path
             self.update_last_runtime(doc_path)
-      
+
         self.update_index(parsed_nodes)
-   
 
+        create_and_load_index(index_name=self.index_name, nodes=parsed_nodes)
 
-      
-        self.save_index()
     def update_index(self, nodes):
         for node in nodes:
             if node.ref_doc_id not in self.doc_ids:
@@ -305,6 +312,7 @@ class DocumentIndexCreator:
                 "nodes_embeddings": self.nodes_embeddings,
             }
             pickle.dump(index_data, file)
+        logging.info(f"Saved index as local file: {self.index_filename}")
 
     def load_index(self):
         if os.path.exists(self.index_filename):
@@ -317,7 +325,7 @@ class DocumentIndexCreator:
 def create_and_load_index(index_name, nodes):
     pinecone.init(
         api_key=os.environ["PINECONE_API_KEY"],
-        environment=os.environ["PINECONE_ENVIRONMENT"],
+        environment=os.environ["PINECONE_ENV"],
     )
 
     pinecone_index = pinecone.Index(index_name)
@@ -354,12 +362,12 @@ if __name__ == "__main__":
         confluence_url=os.environ.get("CONFLUENCE_URL"),
         confluence_username=os.environ.get("CONFLUENCE_USERNAME"),
         confluence_password=os.environ.get("CONFLUENCE_PASSWORD"),
-        save_folder=SAVE_FOLDER,
+        datadir=SAVE_FOLDER,
     )
     downloader.download_confluence_pages()
 
     indexer = DocumentIndexCreator(
-        save_folder=SAVE_FOLDER, index_filename=INDEX_FILENAME, batch_size=BATCH_SIZE
+        datadir=SAVE_FOLDER, index_name=INDEX_FILENAME, batch_size=BATCH_SIZE
     )
     indexer.load_documents()
     indexer.index_documents()

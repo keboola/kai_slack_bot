@@ -239,5 +239,5 @@ def store_index():
     )
 
 if __name__ == "__main__":
-    #main()
+    main()
     store_index()
