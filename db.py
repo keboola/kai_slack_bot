@@ -3,7 +3,7 @@ import os
 import openai
 import logging
 
-from database.builders.confluenceV2 import ConfluenceDataExtractor, DocumentIndexCreator, create_and_load_index
+from database.builders.confluenceV2 import ConfluenceDataExtractor, DocumentIndexCreator
 
 INDEX_NAME = "kaidev"
 
@@ -18,7 +18,6 @@ if __name__ == "__main__":
     CONFLUENCE_PWD = os.environ.get('CONFLUENCE_PASSWORD')
     datadir = os.environ.get('DATA_DIR')
     CONFLUENCE_SAVE_FOLDER = os.path.join(datadir, "confluence")
-
     openai.api_key = os.getenv('OPENAI_API_KEY')
 
     index_name = "kaidev"
@@ -34,5 +33,3 @@ if __name__ == "__main__":
     )
     indexer.load_documents()
     indexer.index_documents()
-
-    # create_and_load_index(index_name=INDEX_NAME, nodes=indexer.doc_ids, )  # Only push document IDs to Pinecone
