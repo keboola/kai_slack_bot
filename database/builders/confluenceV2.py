@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 import logging
 from bs4 import BeautifulSoup
-from tqdm import tqdm
 from atlassian import Confluence
 import pinecone
 
@@ -30,11 +29,20 @@ from llama_index.node_parser.extractors import (
 
 from llama_index.langchain_helpers.text_splitter import TokenTextSplitter
 
-SYNC_FROM = "2020-01-01T00:00:00.000Z"
+SYNC_FROM = "2019-01-01T00:00:00.000Z"
 
 
 def sanitize_filename(filename):
     return re.sub(r"[/\\]", "_", filename)
+
+
+def load_last_runtimes(datadir):
+    runtimes_json_path = os.path.join(datadir, "persist", "runtimes.json")
+    if os.path.exists(runtimes_json_path):
+        with open(runtimes_json_path, "r") as file:
+            return json.load(file)
+    logging.warning("runtime.json not found. Full sync will be needed.")
+    return {}
 
 
 class ConfluenceDataExtractor:
@@ -43,6 +51,7 @@ class ConfluenceDataExtractor:
         self.confluence = Confluence(
             url=confluence_url, username=confluence_username, password=confluence_password
         )
+        self.last_runtimes = load_last_runtimes(self.datadir)
 
     def download_confluence_pages(self, limit=100):
         spaces = self.confluence.get_all_spaces()
@@ -50,68 +59,25 @@ class ConfluenceDataExtractor:
             logging.info(f"Downloading Confluence space: {space['name']}")
 
             content = self.confluence.get_space_content(space["key"])
-            while True:
-                subdir = os.path.join(self.datadir, "data", space["name"])
-                os.makedirs(subdir, exist_ok=True)
+            subdir = os.path.join(self.datadir, "data", space["name"])
+            os.makedirs(subdir, exist_ok=True)
 
+            while content:
                 page = content.get("page")
                 results = page.get("results")
-                size = page.get("size")
 
                 if not results:
                     logging.info(f"No results for {space['name']}")
                     break
 
                 metadata = self._get_metadata(results)
-
-                # Check if the document is already downloaded and up-to-date
-                for result in results:
-                    metadata_filename = os.path.join(
-                        subdir, sanitize_filename(result["title"]) + ".json"
-                    )
-
-                    if os.path.exists(metadata_filename):
-                        with open(metadata_filename, "r", encoding="utf-8") as file:
-                            existing_metadata = json.load(file)
-                            if (
-                                    metadata["LastUpdatedDate"]
-                                    == existing_metadata.get("LastUpdatedDate")
-                            ):
-                                logging.info(
-                                    f"Document '{result['title']}' is up-to-date. Skipping download."
-                                )
-                                continue
-
                 self._save_results(results, metadata, subdir)
 
-                if size == limit:
+                if page.get("size") == limit:
                     start = page.get("start") + limit
                     content = self.confluence.get_space_content(
                         space["key"], start=start, limit=limit
                     )
-                    page = content.get("page")
-                    results = page.get("results")
-                    metadata = self._get_metadata(results)
-
-                    # Check if the document is already downloaded and up-to-date
-                    for result in results:
-                        metadata_filename = os.path.join(
-                            subdir, sanitize_filename(result["title"]) + ".json"
-                        )
-
-                        if os.path.exists(metadata_filename):
-                            with open(metadata_filename, "r", encoding="utf-8") as file:
-                                existing_metadata = json.load(file)
-                                if (
-                                        metadata["LastUpdatedDate"]
-                                        == existing_metadata.get("LastUpdatedDate")
-                                ):
-                                    logging.info(
-                                        f"Document '{result['title']}' is up-to-date. Skipping download."
-                                    )
-                                    continue
-
-                    self._save_results(results, metadata, subdir)
                 else:
                     break
 
@@ -143,7 +109,7 @@ class ConfluenceDataExtractor:
             space = data["space"].get("name", "")
 
             page_metadata = {
-                "id": space + "-" + data.get("id", ""),
+                "id": "Confluence - " + space + "-" + data.get("id", ""),
                 "CreatedDate": data["history"].get("createdDate", ""),
                 "LastUpdatedDate": data["version"].get("when", ""),
                 "Title": data.get("title", ""),
@@ -158,32 +124,37 @@ class ConfluenceDataExtractor:
 
 
 class DocumentIndexCreator:
-    def __init__(self, datadir, index_name, batch_size=20):
+    def __init__(self, datadir, index_name, batch_size=5):
         self.datadir = datadir
-        self.runtimes_json_path = os.path.join(self.datadir, "runtimes.json")
         self.index_name = index_name
         self.batch_size = batch_size
         self.doc_titles = []
         self.doc_paths = []
 
-        self.llm = OpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=256)
-        self.embed_model = OpenAIEmbedding(model="text-embedding-ada-002", embed_batch_size=100)
-        self.llm_predictor = LLMPredictor(llm=self.llm)
-        self.text_splitter = TokenTextSplitter(separator=" ", chunk_size=1024, chunk_overlap=128)
+        llm = OpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=256)
+        llm_predictor = LLMPredictor(llm)
+        text_splitter = TokenTextSplitter(separator=" ", chunk_size=1024, chunk_overlap=128)
+        embed_model = OpenAIEmbedding(model="text-embedding-ada-002", embed_batch_size=100)
+
         self.metadata_extractor = MetadataExtractor(
             extractors=[
                 # TitleExtractor(nodes=2),
                 QuestionsAnsweredExtractor(
-                    questions=3, llm_predictor=self.llm_predictor, show_progress=False
+                    questions=3, llm_predictor=llm_predictor, show_progress=True
                 ),
                 # SummaryExtractor(summaries=["prev", "self"]),
-                KeywordExtractor(keywords=5, llm_predictor=self.llm_predictor, show_progress=False),
+                KeywordExtractor(keywords=5, llm_predictor=llm_predictor, show_progress=True),
             ]
         )
         self.node_parser = SimpleNodeParser(
-            text_splitter=self.text_splitter, metadata_extractor=self.metadata_extractor
+            text_splitter=text_splitter, metadata_extractor=self.metadata_extractor
         )
-        self.last_runtimes = self._load_last_runtimes()
+        service_context = ServiceContext.from_defaults(
+            llm=llm, embed_model=embed_model, node_parser=self.node_parser
+        )
+        set_global_service_context(service_context)
+
+        self.last_runtimes = load_last_runtimes(self.datadir)
 
     def load_documents(self):
         save_folder = os.path.join(self.datadir, "data")
@@ -208,7 +179,7 @@ class DocumentIndexCreator:
                     last_sync = datetime.strptime(last_sync, "%Y-%m-%dT%H:%M:%S.%fZ")
 
                     if last_updated_date >= last_sync:
-                        logging.info(f"File {doc_path} will be upserted to Pinecone.")
+                        logging.info(f"File {doc_path} will be inserted to Pinecone.")
                         self.doc_titles.append(subdir_name + " - " + file_name)
                         self.doc_paths.append(doc_path)
 
@@ -221,12 +192,8 @@ class DocumentIndexCreator:
 
                 documents.append(Document(text=text, doc_id=title, extra_info=extra_info))
 
-                if len(documents) >= self.batch_size:
-                    self.process_batch(documents)
-                    documents = []
-
         if documents:
-            self.process_batch(documents)
+            self.process_documents(documents)
 
     @staticmethod
     def _read_file_as_string(file_path):
@@ -242,65 +209,43 @@ class DocumentIndexCreator:
             return md
         return {}
 
-    def _load_last_runtimes(self):
-        if os.path.exists(self.runtimes_json_path):
-            with open(self.runtimes_json_path, "r") as file:
-                return json.load(file)
-        logging.warning("runtime.json not found. Full sync will be needed.")
-        return {}
-
-    def _update_last_runtime(self, doc_id):
+    def update_last_runtime(self, doc_id):
         current_time = datetime.utcnow()
         current_ts = current_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-        self.save_last_runtime(doc_id, current_ts)
+        self._save_last_runtime(doc_id, current_ts)
 
-    def save_last_runtime(self, path, current_ts):
-        if os.path.exists(self.runtimes_json_path):
-            with open(self.runtimes_json_path, "r") as file:
+    def _save_last_runtime(self, path, current_ts):
+        runtimes_json_path = os.path.join(self.datadir, "persist", "runtimes.json")
+        if os.path.exists(runtimes_json_path):
+            with open(runtimes_json_path, "r") as file:
                 data = json.load(file)
         else:
             data = {}
 
         data[path] = current_ts
 
-        with open(self.runtimes_json_path, "w") as file:
+        with open(runtimes_json_path, "w") as file:
             json.dump(data, file)
 
-    def process_batch(self, documents):
-        service_context = ServiceContext.from_defaults(
-            llm=self.llm, embed_model=self.embed_model, node_parser=self.node_parser
-        )
-        set_global_service_context(service_context)
+    def process_documents(self, documents):
 
-        start = time.time()
-        for document in tqdm(documents, desc="Processing documents"):
-            parsed_nodes = self.node_parser.get_nodes_from_documents([document])
-            doc_id = document.metadata.get("id", "")  # Assuming ref_doc_id contains the document path
-            self._update_last_runtime(doc_id)
-            self.create_and_load_index(index_name=self.index_name, nodes=parsed_nodes)
-
-        logging.info(f"{str(len(documents))} documents parsed in: {time.time() - start}")
-
-    @staticmethod
-    def create_and_load_index(index_name: str, nodes):
-        """Inserts nodes into Pinecone"""
         pinecone.init(
             api_key=os.environ["PINECONE_API_KEY"],
             environment=os.environ["PINECONE_ENV"],
         )
 
-        pinecone_index = pinecone.Index(index_name)
+        pinecone_index = pinecone.Index(self.index_name)
         vector_store = PineconeVectorStore(pinecone_index=pinecone_index, insert_kwargs={"show_progress": False})
 
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-        embed_model = OpenAIEmbedding(
-            model="text-embedding-ada-002", embed_batch_size=100
-        )
-        service_context = ServiceContext.from_defaults(embed_model=embed_model)
+        start = time.time()
+        index = GPTVectorStoreIndex.from_documents(documents, storage_context=storage_context, show_progress=True)
 
-        GPTVectorStoreIndex(
-            nodes,
-            storage_context=storage_context,
-            service_context=service_context
-        )
+        persist_folder = os.path.join(self.datadir, "persist")
+        index.storage_context.persist(persist_dir=persist_folder)
+
+        for document in documents:
+            self.update_last_runtime(document.metadata.get("id"))
+
+        logging.info(f"{str(len(documents))} documents parsed in: {time.time() - start}")
