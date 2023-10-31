@@ -14,3 +14,4 @@ database/datadir/zendesk/raw/*
 downloaded_data/*
 index_data.pkl
 database/builders/index_test_query.ipynb
+.DS_Store

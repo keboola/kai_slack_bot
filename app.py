@@ -30,7 +30,7 @@ data_dir = config("DATA_DIR")
 custom_prompt = Prompt("""\
 Given a conversation (between Human and Assistant) and a follow up message from Human, \
 rewrite the message to be a standalone question that captures all relevant context \
-from the conversation.
+from the conversation. 
 
 <Chat History> 
 {chat_history}
@@ -135,6 +135,13 @@ class SlackApp:
 
         response = chat_engine.chat(message)
 
+        # evaluate response ...
+
+
+        # evaluatin score = xyz
+
+
+
         response_str = str(response)
         response_source = response.sources
 
@@ -148,10 +155,21 @@ class SlackApp:
             text=response_message
         )
 
+        # if evaluation fails
+
+        #Prefix: Your last response as incorrect according to the evaluator...
+        # Please retry from the beginning using this extra info...
+
+        # Evaluate 2nd output...
+
+        # recurisvely until it succeeds evaluation 
+
+        # if succeeds:
+        # Print correction/followup message
+
 
 api = FastAPI()
 slack_app = SlackApp(slack_bot_token, slack_bot_secret)
-
 
 @api.post("/slack/events")
 async def endpoint(req: Request):
