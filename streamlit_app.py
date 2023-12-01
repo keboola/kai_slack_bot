@@ -1,6 +1,5 @@
 import os
 import logging
-from decouple import config
 from llama_index.chat_engine import CondenseQuestionChatEngine
 from llama_index.chat_engine.condense_question import ChatMessage
 from langchain.callbacks import StreamlitCallbackHandler
