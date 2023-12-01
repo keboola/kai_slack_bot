@@ -19,10 +19,10 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 
-os.environ["OPENAI_API_KEY"] = openai.api_key = config("OPENAI_API_KEY")
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-api_key = config("PINECONE_API_KEY")
-pinecone_env = config("PINECONE_ENV")
+api_key = os.getenv("PINECONE_API_KEY")
+pinecone_env = os.getenv("PINECONE_ENV")
 
 pinecone.init(api_key=api_key, environment=pinecone_env)
 index = pinecone.Index("zendesk")

@@ -4,4 +4,3 @@ llama-index==0.7.17
 openai==0.27.8
 openapi-schema-pydantic==1.2.4
 pinecone-client
-decouple
