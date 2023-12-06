@@ -11,13 +11,12 @@ from llama_index.vector_stores import PineconeVectorStore
 
 from dotenv import load_dotenv
 
+st.set_page_config(page_title="DocsBot", layout="centered")
+st.title("📑 DocsBot")
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
-
-st.set_page_config(page_title="DocsBot", layout="centered")
-st.title("📑 DocsBot")
 
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
