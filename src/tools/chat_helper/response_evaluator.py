@@ -1,7 +1,7 @@
 # TODO: [AIS-83] Build a response evaluator that can be used to evaluate the quality of responses
 from llama_index.evaluation import ResponseEvaluator
 from langchain.chat_models import ChatOpenAI
-from llama_index import LLMPredictor, ServiceContext
+# from llama_index import LLMPredictor, ServiceContext  # Deprecated
 from llama_index.evaluation import QueryResponseEvaluator
 
 # build service context
