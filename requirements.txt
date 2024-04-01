@@ -1,3 +1,6 @@
 langchain==0.1.13
+langchain-core==
 langchain-openai==0.1.1
 python-dotenv==1.0.1
+pinecone-client
+langchain-pinecone==0.0.3
