@@ -1,16 +1,21 @@
+import os
+from typing import List
 from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from dotenv import load_dotenv, find_dotenv
-# OPENAI_API_KEY loads from environment automatically when ChatOpenAI() initialised
-load_dotenv(find_dotenv())
+load_dotenv(find_dotenv(filename='.env'))
 
 
 class QueryTransformer:
     def __init__(self):
         # Initialize the model with zero temperature for deterministic results
-        self.model = ChatOpenAI(temperature=0)
+        self.model = ChatOpenAI(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            model_name="gpt-3.5-turbo",
+            temperature=0
+        )
 
         # Multi Query prompt template
         template = """You are an AI language model assistant. Your task is to generate five 
@@ -29,7 +34,8 @@ class QueryTransformer:
                 | (lambda x: x.split("\n"))
         )
 
-    def generate_multi_queries(self, question_text):
+    # Generates 5 queries
+    def generate_multi_queries(self, question_text: str) -> List[str]:
         # Process the question through the chain to generate multiple queries
         return self.chain.invoke(question_text)
 
