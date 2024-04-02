@@ -1,53 +1,32 @@
-import os
-from langchain.retrievers.multi_query import MultiQueryRetriever
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableParallel, RunnablePassthrough
-from langchain_pinecone import PineconeVectorStore
 
-import dotenv
-dotenv.load_dotenv(dotenv.find_dotenv())
-
-
-# Ensure the necessary environment variables are set
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-if not PINECONE_API_KEY:
-    raise Exception("Missing `PINECONE_API_KEY` environment variable.")
-
-PINECONE_ENV = os.getenv("PINECONE_ENV")
-if not PINECONE_ENV:
-    raise Exception("Missing `PINECONE_ENV` environment variable.")
+from dotenv import load_dotenv, find_dotenv
+# OPENAI_API_KEY loads from environment automatically when ChatOpenAI() initialised
+load_dotenv(find_dotenv())
 
 
 class QueryTransformer:
-    def __init__(self, pinecone_index_name='confluence'):
-        # Initialize vector store with the given Pinecone index name and embeddings
-        self.vectorstore = PineconeVectorStore.from_existing_index(
-            pinecone_index_name, OpenAIEmbeddings()
-        )
-
+    def __init__(self):
         # Initialize the model with zero temperature for deterministic results
         self.model = ChatOpenAI(temperature=0)
 
-        # Create the retriever using the vector store and model
-        self.retriever = MultiQueryRetriever.from_llm(
-            retriever=self.vectorstore.as_retriever(), llm=self.model
-        )
+        # Multi Query prompt template
+        template = """You are an AI language model assistant. Your task is to generate five 
+        different versions of the given user question to retrieve relevant documents from a vector 
+        database. By generating multiple perspectives on the user question, your goal is to help
+        the user overcome some of the limitations of the distance-based similarity search. 
+        Provide these alternative questions separated by newlines. Original question: {question}"""
 
-        # Define the RAG prompt template
-        self.template = """
-        Answer the question based only on the following context: {context}
-        Question: {question}
-        """
-        self.prompt = ChatPromptTemplate.from_template(self.template)
+        self.prompt = ChatPromptTemplate.from_template(template)
 
-        # Create the RAG chain combining components into a processing pipeline
+        # Create the chain combining components into a processing pipeline
         self.chain = (
-                RunnableParallel({"context": self.retriever, "question": RunnablePassthrough()})
-                | self.prompt
+                self.prompt
                 | self.model
                 | StrOutputParser()
+                | (lambda x: x.split("\n"))
         )
 
     def generate_multi_queries(self, question_text):
@@ -56,6 +35,7 @@ class QueryTransformer:
 
 
 if __name__ == "__main__":
+    # Test run
     qt = QueryTransformer()
     multi_queries = qt.generate_multi_queries("What is HealthCheck Lite?")
     print(multi_queries)
