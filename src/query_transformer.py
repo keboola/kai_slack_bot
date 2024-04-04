@@ -1,4 +1,4 @@
-"""Module for processing transforming user queries into multiple versions"""
+"""Module for processing and transforming user query into its multiple versions"""
 import os
 import logging
 from typing import List
@@ -14,8 +14,17 @@ logger = logging.getLogger(__name__)
 
 load_dotenv(find_dotenv(filename='.env'))
 
+# Multi Query prompt template
+DEFAULT_QUERY_PROMPT = """You are an AI language model assistant. Your task is to generate five 
+        different versions of the given user question to retrieve relevant documents from a vector 
+        database. By generating multiple perspectives on the user question, your goal is to help
+        the user overcome some of the limitations of the distance-based similarity search. 
+        Provide these alternative questions separated by newlines. Original question: {question}"""
+
 
 class QueryTransformer:
+    """Given a query, use a LLM to write a set of queries."""
+
     def __init__(self):
         # Initialize the model with zero temperature for deterministic results
         openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -30,14 +39,7 @@ class QueryTransformer:
         )
         logger.info("ChatOpenAI model initialized with zero temperature.")
 
-        # Multi Query prompt template
-        template = """You are an AI language model assistant. Your task is to generate five 
-        different versions of the given user question to retrieve relevant documents from a vector 
-        database. By generating multiple perspectives on the user question, your goal is to help
-        the user overcome some of the limitations of the distance-based similarity search. 
-        Provide these alternative questions separated by newlines. Original question: {question}"""
-
-        self.prompt = ChatPromptTemplate.from_template(template)
+        self.prompt = ChatPromptTemplate.from_template(DEFAULT_QUERY_PROMPT)
         logger.info("Multi Query prompt template initialized.")
 
         # Create the chain combining components into a processing pipeline
@@ -51,6 +53,14 @@ class QueryTransformer:
 
     # Generates 5 queries
     def generate_multi_queries(self, question_text: str) -> List[str]:
+        """Generate queries based upon user input.
+
+        Args:
+            question_text: user query
+
+        Returns:
+            List of LLM generated queries that are similar to the user input
+        """
         logger.info(f"Generating multiple queries for the question: '{question_text}'")
         # Process the question through the chain to generate multiple queries
         return self.chain.invoke(question_text)
