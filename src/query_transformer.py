@@ -40,7 +40,6 @@ class QueryTransformer:
         logger.info("ChatOpenAI model initialized with zero temperature.")
 
         self.prompt = ChatPromptTemplate.from_template(DEFAULT_QUERY_PROMPT)
-        logger.info("Multi Query prompt template initialized.")
 
         # Create the chain combining components into a processing pipeline
         self.chain = (
@@ -52,22 +51,22 @@ class QueryTransformer:
         logger.info("Query processing chain created.")
 
     # Generates 5 queries
-    def generate_multi_queries(self, question_text: str) -> List[str]:
+    def generate_multi_queries(self, question: str) -> List[str]:
         """Generate queries based upon user input.
 
         Args:
-            question_text: user query
+            question: user query
 
         Returns:
             List of LLM generated queries that are similar to the user input
         """
-        logger.info(f"Generating multiple queries for the question: '{question_text}'")
+        logger.info(f"Generating multiple queries for the question: '{question}'")
         # Process the question through the chain to generate multiple queries
-        return self.chain.invoke(question_text)
+        return self.chain.invoke(question)
 
 
 if __name__ == "__main__":
     # Test run
-    qt = QueryTransformer()
-    multi_queries = qt.generate_multi_queries("What is HealthCheck Lite?")
+    query_transformer = QueryTransformer()
+    multi_queries = query_transformer.generate_multi_queries("What is HealthCheck Lite?")
     logger.info(f"Generated queries: {multi_queries}")
