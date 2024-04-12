@@ -6,13 +6,10 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-from dotenv import load_dotenv, find_dotenv
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-load_dotenv(find_dotenv(filename='.env'))
 
 # Multi Query prompt template
 DEFAULT_QUERY_PROMPT = """You are an AI language model assistant. Your task is to generate five 
@@ -67,6 +64,10 @@ class QueryTransformer:
 
 if __name__ == "__main__":
     # Test run
+    from dotenv import load_dotenv, find_dotenv
+
+    load_dotenv(find_dotenv(filename='.env'))
+
     query_transformer = QueryTransformer()
     multi_queries = query_transformer.generate_multi_queries("What is HealthCheck Lite?")
     logger.info(f"Generated queries: {multi_queries}")
