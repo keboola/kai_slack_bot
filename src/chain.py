@@ -40,6 +40,9 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 # from langchain_google_genai import ChatGoogleGenerativeAI
 # from langsmith import Client
 
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(filename='.env'))
+
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -179,7 +182,6 @@ def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> 
 
 def format_docs(docs: Sequence[Document]) -> str:
     formatted_docs = []
-    print(docs)
     for i, doc in enumerate(docs):
         doc_string = f"<doc id='{i}'>{doc.page_content}</doc>"
         formatted_docs.append(doc_string)
@@ -244,52 +246,53 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     )
 
 
+
+
+
+import bs4
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# Load, chunk and index the contents of the blog.
+loader = WebBaseLoader(
+    web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
+    bs_kwargs=dict(
+        parse_only=bs4.SoupStrainer(
+            class_=("post-content", "post-title", "post-header")
+        )
+    ),
+)
+docs = loader.load()
+
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+splits = text_splitter.split_documents(docs)
+vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
+retriever = vectorstore.as_retriever()
+
+llm = ChatOpenAI(
+    openai_api_key=OPENAI_API_KEY,
+    model_name="gpt-3.5-turbo-0125",
+    temperature=0
+)
+
+# llm = ChatCohere(
+#     cohere_api_key=COHERE_COMMAND_R_PLUS_API_KEY,
+#     model="command-r-plus",
+#     temperature=0,
+# )
+
+# retriever = get_pinecone_retriever_with_index(
+#     pinecone_api_key=PINECONE_API_KEY,
+#     index_name=PINECONE_INDEX_NAME,
+#     embedding_model=OpenAIEmbeddings()
+# )
+
+answer_chain = create_chain(llm, retriever)
+
 if __name__ == "__main__":
-    from dotenv import load_dotenv, find_dotenv
-    load_dotenv(find_dotenv(filename='.env'))
-
-    import bs4
-    from langchain_community.document_loaders import WebBaseLoader
-    from langchain_core.output_parsers import StrOutputParser
-    from langchain_core.runnables import RunnablePassthrough
-    from langchain_openai import OpenAIEmbeddings
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-    # Load, chunk and index the contents of the blog.
-    loader = WebBaseLoader(
-        web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
-        bs_kwargs=dict(
-            parse_only=bs4.SoupStrainer(
-                class_=("post-content", "post-title", "post-header")
-            )
-        ),
-    )
-    docs = loader.load()
-
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    splits = text_splitter.split_documents(docs)
-    vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings())
-    retriever = vectorstore.as_retriever()
-
-    # llm = ChatOpenAI(
-    #     openai_api_key=OPENAI_API_KEY,
-    #     model_name="gpt-3.5-turbo-0125",
-    #     temperature=0
-    # )
-
-    llm = ChatCohere(
-        cohere_api_key=COHERE_COMMAND_R_PLUS_API_KEY,
-        model="command-r-plus",
-        temperature=0,
-    )
-
-    # retriever = get_pinecone_retriever_with_index(
-    #     pinecone_api_key=PINECONE_API_KEY,
-    #     index_name=PINECONE_INDEX_NAME,
-    #     embedding_model=OpenAIEmbeddings()
-    # )
-
-    answer_chain = create_chain(llm, retriever)
     answer = answer_chain.invoke(
         {
             'question': "What's LLM agent?",
