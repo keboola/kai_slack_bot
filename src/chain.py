@@ -55,7 +55,8 @@ PINECONE_INDEX_NAME = 'confluence'
 
 REPHRASE_TEMPLATE = """\
 Given the following conversation and a follow up question, rephrase the follow up \
-question to be a standalone question.
+question to be a standalone question. Do NOT answer the question, just reformulate \
+it if needed, otherwise return as it is.
 
 Chat History:
 {chat_history}
@@ -103,6 +104,29 @@ class ChatRequest(BaseModel):
 
 def unique_documents(documents: Sequence[Document]) -> List[Document]:
     return [doc for i, doc in enumerate(documents) if doc not in documents[:i]]
+
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+
+store = {}
+
+
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
+
+
+def flatten_and_unique(documents_lists: List[List[Document]]) -> List[Document]:
+    unique_documents = []
+    seen_contents = set()  # Set to track seen page contents for uniqueness
+    for documents in documents_lists:
+        for document in documents:
+            if document.page_content not in seen_contents:
+                seen_contents.add(document.page_content)
+                unique_documents.append(document)
+    return unique_documents
 
 
 def get_pinecone_retriever_with_index(
@@ -154,9 +178,17 @@ def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> 
             | StrOutputParser()
     ).with_config(run_name="CondenseQuestion")
 
+    with_message_history = RunnableWithMessageHistory(
+        condense_question_chain,
+        get_session_history,
+        input_messages_key="question",
+        history_messages_key="chat_history",
+    )
+
     MULTI_QUERY_PROMPT = PromptTemplate.from_template(MULTI_QUERY_TEMPLATE)
     listof_questions_chain = (
-            condense_question_chain
+            # condense_question_chain
+            with_message_history
             | MULTI_QUERY_PROMPT
             | llm
             | StrOutputParser()
@@ -170,18 +202,16 @@ def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> 
         pick_top_n=3
     )
 
-    conversation_chain = (
+    return (
             listof_questions_chain
             | compression_retriever.map()
-            | (lambda document_lists: [doc for docs in document_lists for doc in docs])
-            | (lambda documents: [doc for i, doc in enumerate(documents) if doc not in documents[:i]])
-    )
-
-    return conversation_chain.with_config(run_name="RetrievalChainWithReranker")
+            | RunnableLambda(flatten_and_unique)
+    ).with_config(run_name="RetrievalChainWithReranker")
 
 
 def format_docs(docs: Sequence[Document]) -> str:
     formatted_docs = []
+    print(docs)
     for i, doc in enumerate(docs):
         doc_string = f"<doc id='{i}'>{doc.page_content}</doc>"
         formatted_docs.append(doc_string)
@@ -238,7 +268,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     # ).with_config(run_name="GenerateResponse")
 
     return (
-            RunnablePassthrough.assign(chat_history=serialize_history)
+            RunnablePassthrough()
             | context
             # | response_synthesizer
             | default_response_synthesizer
@@ -269,7 +299,9 @@ docs = loader.load()
 
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 splits = text_splitter.split_documents(docs)
-vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
+vectorstore = Chroma.from_documents(
+    documents=splits,
+    embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
 retriever = vectorstore.as_retriever()
 
 llm = ChatOpenAI(

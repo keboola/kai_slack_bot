@@ -4,15 +4,15 @@ from typing import Optional, Union
 from uuid import UUID
 
 # import langsmith
+# from langsmith import Client
 from src.chain import ChatRequest, answer_chain
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langserve import add_routes
-# from langsmith import Client
+
 from pydantic import BaseModel
-
-
-
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(filename='.env'))
 # client = Client()
 
 app = FastAPI()
@@ -37,7 +37,5 @@ add_routes(
 
 if __name__ == "__main__":
     import uvicorn
-    from dotenv import load_dotenv, find_dotenv
-    load_dotenv(find_dotenv(filename='.env'))
 
     uvicorn.run(app, host="0.0.0.0", port=8080)
