@@ -3,8 +3,8 @@ import asyncio
 from typing import Optional, Union
 from uuid import UUID
 
-# import langsmith
-# from langsmith import Client
+import langsmith
+from langsmith import Client
 from src.chain import ChatRequest, answer_chain
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +13,8 @@ from langserve import add_routes
 from pydantic import BaseModel
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(filename='.env'))
-# client = Client()
+
+client = Client()
 
 app = FastAPI()
 app.add_middleware(

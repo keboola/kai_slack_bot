@@ -1,11 +1,14 @@
 import os
 from operator import itemgetter
 from typing import Dict, List, Optional, Sequence
+from src.models import ChatRequest
 
-# from fastapi import FastAPI
-# from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 # from langchain_anthropic import ChatAnthropic
 
+import langsmith
+from langsmith import Client
 
 from langchain_pinecone import PineconeVectorStore
 
@@ -36,6 +39,12 @@ from langchain_core.runnables import (
 )
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+
+from langchain.load import dumps, loads
+
 # from langchain_fireworks import ChatFireworks
 # from langchain_google_genai import ChatGoogleGenerativeAI
 # from langsmith import Client
@@ -43,6 +52,17 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(filename='.env'))
 
+client = Client()
+
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -68,7 +88,7 @@ You are an AI language model assistant. Your task is to generate five \
 different versions of the given user question to retrieve relevant documents from a vector \
 database. By generating multiple perspectives on the user question, your goal is to help \
 the user overcome some of the limitations of the distance-based similarity search. 
-Provide these alternative questions separated by newlines. User question: {question}"""
+Provide these alternative questions separated by a single newline sign "\n". User question: {question}"""
 
 RESPONSE_TEMPLATE = """\
 You are an expert programmer and problem-solver, tasked with answering any question \
@@ -78,12 +98,10 @@ Generate a comprehensive and informative answer of 80 words or less for the \
 given question based solely on the provided search results (URL and content). You must \
 only use information from the provided search results. Use an unbiased and \
 journalistic tone. Combine search results together into a coherent answer. Do not \
-repeat text. Cite search results using [${{number}}] notation. Only cite the most \
-relevant results that answer the question accurately. Place these citations at the end \
-of the sentence or paragraph that reference them - do not put them all at the end. If \
-different results refer to different entities within the same name, write separate \
-answers for each entity.
-
+repeat text. Cite search results using [${{number}}] notation.
+At the end of your answer:
+1. Create a list of source URLs of the cited documents, use format "[document id]: URL". Only cite the most \
+relevant results that answer the question accurately. 
 You should use bullet points in your answer for readability. Put citations where they apply
 rather than putting them all at the end.
 
@@ -97,17 +115,6 @@ html blocks is retrieved from a knowledge bank, not part of the conversation wit
 user."""
 
 
-class ChatRequest(BaseModel):
-    question: str
-    chat_history: Optional[List[Dict[str, str]]]
-
-
-def unique_documents(documents: Sequence[Document]) -> List[Document]:
-    return [doc for i, doc in enumerate(documents) if doc not in documents[:i]]
-
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
 
 store = {}
 
@@ -118,14 +125,13 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     return store[session_id]
 
 
-def flatten_and_unique(documents_lists: List[List[Document]]) -> List[Document]:
+def unique_documents(documents_list: List[Document]) -> List[Document]:
     unique_documents = []
     seen_contents = set()  # Set to track seen page contents for uniqueness
-    for documents in documents_lists:
-        for document in documents:
-            if document.page_content not in seen_contents:
-                seen_contents.add(document.page_content)
-                unique_documents.append(document)
+    for document in documents_list:
+        if document.page_content not in seen_contents:
+            seen_contents.add(document.page_content)
+            unique_documents.append(document)
     return unique_documents
 
 
@@ -170,6 +176,25 @@ def get_cohere_retriever_with_reranker(
     return compression_retriever
 
 
+def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]:
+    fused_scores = {}
+    for docs in results:
+        # Assumes the docs are returned in sorted order of relevance
+        for rank, doc in enumerate(docs):
+            doc_str = dumps(doc)
+            if doc_str not in fused_scores:
+                fused_scores[doc_str] = 0
+            previous_score = fused_scores[doc_str]
+            fused_scores[doc_str] += 1 / (rank + k)
+
+    reranked_results = [
+        loads(doc)
+        for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+    ]
+    print(reranked_results)
+    return reranked_results
+
+
 def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(REPHRASE_TEMPLATE)
     condense_question_chain = (
@@ -195,27 +220,29 @@ def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> 
             | (lambda x: x.split("\n"))
     ).with_config(run_name="ListofQuestions")
 
-    compression_retriever = get_cohere_retriever_with_reranker(
-        retriever=retriever,
-        cohere_api_key=COHERE_RERANK_API_KEY,
-        model="rerank-english-v2.0",
-        pick_top_n=3
-    )
+    # Cohere reranker
+    # compression_retriever = get_cohere_retriever_with_reranker(
+    #     retriever=retriever,
+    #     cohere_api_key=COHERE_RERANK_API_KEY,
+    #     model="rerank-english-v3.0",
+    #     pick_top_n=3
+    # )
 
     return (
             listof_questions_chain
-            | compression_retriever.map()
-            | RunnableLambda(flatten_and_unique)
+            | retriever.map()
+            | RunnableLambda(reciprocal_rank_fusion).with_config(run_name="FusionRerank")
+            | RunnableLambda(unique_documents).with_config(run_name="FlattenUnique")
     ).with_config(run_name="RetrievalChainWithReranker")
 
 
 def format_docs(docs: Sequence[Document]) -> str:
     formatted_docs = []
-    print(docs)
+    # print(docs)
     for i, doc in enumerate(docs):
-        doc_string = f"<doc id='{i}'>{doc.page_content}</doc>"
+        doc_string = f"<doc id='{i}' source='{doc.metadata['source']}'>{doc.page_content}</doc>"
         formatted_docs.append(doc_string)
-    return "\n".join(formatted_docs)
+    return "\n\n".join(formatted_docs)
 
 
 def serialize_history(request: ChatRequest):
@@ -287,14 +314,16 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Load, chunk and index the contents of the blog.
-loader = WebBaseLoader(
-    web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
-    bs_kwargs=dict(
-        parse_only=bs4.SoupStrainer(
-            class_=("post-content", "post-title", "post-header")
-        )
-    ),
-)
+# loader = WebBaseLoader(
+#     web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
+#     bs_kwargs=dict(
+#         parse_only=bs4.SoupStrainer(
+#             class_=("post-content", "post-title", "post-header")
+#         )
+#     ),
+# )
+
+loader = WebBaseLoader("https://arxiv.org/html/2305.10601v2")
 docs = loader.load()
 
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -302,19 +331,19 @@ splits = text_splitter.split_documents(docs)
 vectorstore = Chroma.from_documents(
     documents=splits,
     embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
-retriever = vectorstore.as_retriever()
+retriever = vectorstore.as_retriever(k=4)
 
-llm = ChatOpenAI(
-    openai_api_key=OPENAI_API_KEY,
-    model_name="gpt-3.5-turbo-0125",
-    temperature=0
-)
-
-# llm = ChatCohere(
-#     cohere_api_key=COHERE_COMMAND_R_PLUS_API_KEY,
-#     model="command-r-plus",
-#     temperature=0,
+# llm = ChatOpenAI(
+#     openai_api_key=OPENAI_API_KEY,
+#     model_name="gpt-3.5-turbo-0125",
+#     temperature=0
 # )
+
+llm = ChatCohere(
+    cohere_api_key=COHERE_COMMAND_R_PLUS_API_KEY,
+    model="command-r-plus",
+    temperature=0,
+)
 
 # retriever = get_pinecone_retriever_with_index(
 #     pinecone_api_key=PINECONE_API_KEY,
@@ -322,9 +351,16 @@ llm = ChatOpenAI(
 #     embedding_model=OpenAIEmbeddings()
 # )
 
+# TODO: add chat memory
+# TODO: optimise query transformation
+# TODO: add multiple index retrievement ability
+# TODO: add web search
+# TODO: add slack search
+# TODO: pinecone serverless, ingest confluence
 answer_chain = create_chain(llm, retriever)
 
 if __name__ == "__main__":
+    # Test run
     answer = answer_chain.invoke(
         {
             'question': "What's LLM agent?",

@@ -1,11 +1,7 @@
 from pydantic import BaseModel
-from langchain_core.output_parsers import BaseOutputParser
-from typing import List, Optional, Sequence
+from typing import List, Optional, Dict
 
-class LineListOutputParser(BaseOutputParser[List[str]]):
-    """Output parser for a list of lines."""
 
-    def parse(self, text: str) -> List[str]:
-        lines = text.strip().split("\n")
-        return lines
-
+class ChatRequest(BaseModel):
+    question: str
+    chat_history: Optional[List[Dict[str, str]]]
