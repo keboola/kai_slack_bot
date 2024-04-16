@@ -12,7 +12,8 @@ from langsmith import Client
 
 from langchain_pinecone import PineconeVectorStore
 
-from langchain_cohere import ChatCohere, CohereEmbeddings, CohereRagRetriever, CohereRerank
+from langchain_cohere import ChatCohere, CohereEmbeddings, CohereRagRetriever, \
+    CohereRerank
 from langchain.retrievers import ContextualCompressionRetriever
 
 from langchain_core.documents import Document
@@ -50,6 +51,7 @@ from langchain.load import dumps, loads
 # from langsmith import Client
 
 from dotenv import load_dotenv, find_dotenv
+
 load_dotenv(find_dotenv(filename='.env'))
 
 client = Client()
@@ -73,48 +75,42 @@ PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = 'confluence'
 
-REPHRASE_TEMPLATE = """\
-Given the following conversation and a follow up question, rephrase the follow up \
-question to be a standalone question. Do NOT answer the question, just reformulate \
-it if needed, otherwise return as it is.
+MULTI_QUERY_TEMPLATE = """\
+You are an AI language model assistant tasked with understanding \
+the context of a conversation and generating multiple versions of a follow-up \
+question to facilitate a comprehensive document search in a vector database. \
+Use the chat history and the provided follow-up question to create five \
+distinct queries. Each reformulated question should be standalone and crafted \
+to address potential limitations in distance-based similarity search. \
+Return these alternative questions separated by a single newline sign "\n".
 
 Chat History:
 {chat_history}
-Follow Up Input: {question}
-Standalone Question:"""
+Follow-up question: {question}
+Alternative Questions:
+"""
 
-MULTI_QUERY_TEMPLATE = """\
-You are an AI language model assistant. Your task is to generate five \
-different versions of the given user question to retrieve relevant documents from a vector \
-database. By generating multiple perspectives on the user question, your goal is to help \
-the user overcome some of the limitations of the distance-based similarity search. 
-Provide these alternative questions separated by a single newline sign "\n". User question: {question}"""
+RESPONSE_TEMPLATE = """
+You are an AI assistant with the capability to retrieve relevant documents \
+to aid in answering user queries. First, retrieve pertinent information from a \
+specified document collection. Construct a detailed and accurate response \
+based on the user's question and the retrieved documents. If there is \
+no relevant information within the context, respond with "Hmm, I'm not sure." \
+Generate a comprehensive answer of 80 words or less, using an unbiased and \
+journalistic tone. Combine information from different sources into a coherent \
+answer without repeating text. Cite the sources in your answer using [number] \
+notation, where the count starts from 1. Only cite the most relevant results \
+that accurately answer the question. Include source URLs at the end of your \
+answer, formatted as "[number]: [URL]". 
 
-RESPONSE_TEMPLATE = """\
-You are an expert programmer and problem-solver, tasked with answering any question \
-about Keboola.
-
-Generate a comprehensive and informative answer of 80 words or less for the \
-given question based solely on the provided search results (URL and content). You must \
-only use information from the provided search results. Use an unbiased and \
-journalistic tone. Combine search results together into a coherent answer. Do not \
-repeat text. Cite search results using [${{number}}] notation.
-At the end of your answer:
-1. Create a list of source URLs of the cited documents, use format "[document id]: URL". Only cite the most \
-relevant results that answer the question accurately. 
-You should use bullet points in your answer for readability. Put citations where they apply
-rather than putting them all at the end.
-
-<context>
-    {context} 
-<context/>
-
-REMEMBER: If there is no relevant information within the context, just say "Hmm, I'm \
-not sure." Don't try to make up an answer. Anything between the preceding 'context' \
-html blocks is retrieved from a knowledge bank, not part of the conversation with the \
-user."""
-
-
+Document collection is below.
+---------------------
+{context}
+---------------------
+Given the context information and not prior knowledge, answer the question.
+Question: {question}
+Answer:
+"""
 
 store = {}
 
@@ -126,13 +122,13 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
 
 
 def unique_documents(documents_list: List[Document]) -> List[Document]:
-    unique_documents = []
+    unique_docs = []
     seen_contents = set()  # Set to track seen page contents for uniqueness
     for document in documents_list:
         if document.page_content not in seen_contents:
             seen_contents.add(document.page_content)
-            unique_documents.append(document)
-    return unique_documents
+            unique_docs.append(document)
+    return unique_docs
 
 
 def get_pinecone_retriever_with_index(
@@ -167,7 +163,8 @@ def get_cohere_retriever_with_reranker(
         top_n=pick_top_n
     )
 
-    # Create a compression retriever that uses the Cohere reranker and the base retriever
+    # Create a compression retriever that uses the Cohere reranker and the
+    # base retriever
     compression_retriever = ContextualCompressionRetriever(
         base_compressor=cohere_rerank,
         base_retriever=retriever
@@ -176,7 +173,8 @@ def get_cohere_retriever_with_reranker(
     return compression_retriever
 
 
-def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]:
+def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[
+    Document]:
     fused_scores = {}
     for docs in results:
         # Assumes the docs are returned in sorted order of relevance
@@ -189,36 +187,31 @@ def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]
 
     reranked_results = [
         loads(doc)
-        for doc, score in sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+        for doc, score in
+        sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
     ]
     print(reranked_results)
     return reranked_results
 
 
-def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
-    CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(REPHRASE_TEMPLATE)
-    condense_question_chain = (
-            CONDENSE_QUESTION_PROMPT
-            | llm
-            | StrOutputParser()
-    ).with_config(run_name="CondenseQuestion")
-
-    with_message_history = RunnableWithMessageHistory(
-        condense_question_chain,
-        get_session_history,
-        input_messages_key="question",
-        history_messages_key="chat_history",
-    )
-
+def create_retriever_chain(
+        llm: LanguageModelLike,
+        retriever: BaseRetriever
+) -> Runnable:
     MULTI_QUERY_PROMPT = PromptTemplate.from_template(MULTI_QUERY_TEMPLATE)
-    listof_questions_chain = (
-            # condense_question_chain
-            with_message_history
-            | MULTI_QUERY_PROMPT
+    multi_query_chain = (
+            MULTI_QUERY_PROMPT
             | llm
             | StrOutputParser()
             | (lambda x: x.split("\n"))
     ).with_config(run_name="ListofQuestions")
+
+    with_message_history = RunnableWithMessageHistory(
+        multi_query_chain,
+        get_session_history,
+        input_messages_key="question",
+        history_messages_key="chat_history",
+    )
 
     # Cohere reranker
     # compression_retriever = get_cohere_retriever_with_reranker(
@@ -229,10 +222,12 @@ def create_retriever_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> 
     # )
 
     return (
-            listof_questions_chain
+            with_message_history
             | retriever.map()
-            | RunnableLambda(reciprocal_rank_fusion).with_config(run_name="FusionRerank")
-            | RunnableLambda(unique_documents).with_config(run_name="FlattenUnique")
+            | RunnableLambda(reciprocal_rank_fusion)
+            .with_config(run_name="FusionRerank")
+            | RunnableLambda(unique_documents)
+            .with_config(run_name="FlattenUnique")
     ).with_config(run_name="RetrievalChainWithReranker")
 
 
@@ -240,7 +235,8 @@ def format_docs(docs: Sequence[Document]) -> str:
     formatted_docs = []
     # print(docs)
     for i, doc in enumerate(docs):
-        doc_string = f"<doc id='{i}' source='{doc.metadata['source']}'>{doc.page_content}</doc>"
+        doc_string = f"<doc id='{i}' source='{doc.metadata['source']}'>\
+        {doc.page_content}</doc>"
         formatted_docs.append(doc_string)
     return "\n\n".join(formatted_docs)
 
@@ -250,7 +246,8 @@ def serialize_history(request: ChatRequest):
     converted_chat_history = []
     for message in chat_history:
         if message.get("human") is not None:
-            converted_chat_history.append(HumanMessage(content=message["human"]))
+            converted_chat_history.append(
+                HumanMessage(content=message["human"]))
         if message.get("ai") is not None:
             converted_chat_history.append(AIMessage(content=message["ai"]))
     return converted_chat_history
@@ -303,9 +300,6 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     )
 
 
-
-
-
 import bs4
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.output_parsers import StrOutputParser
@@ -326,7 +320,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 loader = WebBaseLoader("https://arxiv.org/html/2305.10601v2")
 docs = loader.load()
 
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000,
+                                               chunk_overlap=200)
 splits = text_splitter.split_documents(docs)
 vectorstore = Chroma.from_documents(
     documents=splits,
