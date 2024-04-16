@@ -69,7 +69,7 @@ app.add_middleware(
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 COHERE_RERANK_API_KEY = os.environ.get("COHERE_API_KEY")
-COHERE_COMMAND_R_PLUS_API_KEY = os.environ.get("COHERE_API_KEY")
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
@@ -98,10 +98,11 @@ based on the user's question and the retrieved documents. If there is \
 no relevant information within the context, respond with "Hmm, I'm not sure." \
 Generate a comprehensive answer of 80 words or less, using an unbiased and \
 journalistic tone. Combine information from different sources into a coherent \
-answer without repeating text. Cite the sources in your answer using [number] \
-notation, where the count starts from 1. Only cite the most relevant results \
-that accurately answer the question. Include source URLs at the end of your \
-answer, formatted as "[number]: [URL]". 
+answer without repeating text. Cite the sources in your answer using \
+[document number] notation, where the count starts from 1. 
+Only cite the most relevant results that accurately answer the question. \
+Include source URLs at the end of your answer, \
+formatted as "[document number]: [URL]". 
 
 Document collection is below.
 ---------------------
@@ -121,13 +122,14 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     return store[session_id]
 
 
-def unique_documents(documents_list: List[Document]) -> List[Document]:
+def unique_documents(documents_lists: List[List[Document]]) -> List[Document]:
     unique_docs = []
     seen_contents = set()  # Set to track seen page contents for uniqueness
-    for document in documents_list:
-        if document.page_content not in seen_contents:
-            seen_contents.add(document.page_content)
-            unique_docs.append(document)
+    for documents in documents_lists:
+        for document in documents:
+            if document.page_content not in seen_contents:
+                seen_contents.add(document.page_content)
+                unique_docs.append(document)
     return unique_docs
 
 
@@ -152,29 +154,28 @@ def get_pinecone_retriever_with_index(
 
 
 def get_cohere_retriever_with_reranker(
-        retriever: BaseRetriever,
+        base_retriever: BaseRetriever,
         cohere_api_key: str,
         model: str,
-        pick_top_n: int = 3
+        top_n: int = 3
 ) -> ContextualCompressionRetriever:
     cohere_rerank = CohereRerank(
         cohere_api_key=cohere_api_key,
         model=model,
-        top_n=pick_top_n
+        top_n=top_n
     )
 
     # Create a compression retriever that uses the Cohere reranker and the
     # base retriever
     compression_retriever = ContextualCompressionRetriever(
         base_compressor=cohere_rerank,
-        base_retriever=retriever
+        base_retriever=base_retriever
     )
 
     return compression_retriever
 
 
-def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[
-    Document]:
+def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]:
     fused_scores = {}
     for docs in results:
         # Assumes the docs are returned in sorted order of relevance
@@ -206,7 +207,7 @@ def create_retriever_chain(
             | (lambda x: x.split("\n"))
     ).with_config(run_name="ListofQuestions")
 
-    with_message_history = RunnableWithMessageHistory(
+    with_message_history_chain = RunnableWithMessageHistory(
         multi_query_chain,
         get_session_history,
         input_messages_key="question",
@@ -214,18 +215,19 @@ def create_retriever_chain(
     )
 
     # Cohere reranker
-    # compression_retriever = get_cohere_retriever_with_reranker(
-    #     retriever=retriever,
-    #     cohere_api_key=COHERE_RERANK_API_KEY,
-    #     model="rerank-english-v3.0",
-    #     pick_top_n=3
-    # )
+    compression_retriever = get_cohere_retriever_with_reranker(
+        base_retriever=retriever,
+        cohere_api_key=COHERE_API_KEY,
+        model="rerank-english-v3.0",
+        top_n=3
+    ).with_config(run_name="RetrieverRerank")
+
+    # rag_retriever = CohereRagRetriever(llm=llm)
 
     return (
-            with_message_history
-            | retriever.map()
-            | RunnableLambda(reciprocal_rank_fusion)
-            .with_config(run_name="FusionRerank")
+            with_message_history_chain
+            | compression_retriever.map()
+            # | rag_retriever.map().with_config(run_name="RagRetriever")
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
     ).with_config(run_name="RetrievalChainWithReranker")
@@ -326,6 +328,7 @@ splits = text_splitter.split_documents(docs)
 vectorstore = Chroma.from_documents(
     documents=splits,
     embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
+
 retriever = vectorstore.as_retriever(k=4)
 
 # llm = ChatOpenAI(
@@ -335,9 +338,9 @@ retriever = vectorstore.as_retriever(k=4)
 # )
 
 llm = ChatCohere(
-    cohere_api_key=COHERE_COMMAND_R_PLUS_API_KEY,
+    cohere_api_key=COHERE_API_KEY,
     model="command-r-plus",
-    temperature=0,
+    temperature=0
 )
 
 # retriever = get_pinecone_retriever_with_index(
@@ -347,11 +350,12 @@ llm = ChatCohere(
 # )
 
 # TODO: add chat memory
-# TODO: optimise query transformation
-# TODO: add multiple index retrievement ability
+# TODO: add multiple index retrievement ability (Cohere with connectors)
 # TODO: add web search
 # TODO: add slack search
 # TODO: pinecone serverless, ingest confluence
+
+
 answer_chain = create_chain(llm, retriever)
 
 if __name__ == "__main__":
