@@ -19,7 +19,6 @@ from langchain.retrievers import ContextualCompressionRetriever
 from langchain_core.documents import Document
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
-from langchain_community.vectorstores import Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.embeddings import Embeddings
 from langchain_core.prompts import (
@@ -45,13 +44,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain.memory import ConversationBufferMemory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
-from langchain.load import dumps, loads
-
-# from langchain_fireworks import ChatFireworks
-# from langchain_google_genai import ChatGoogleGenerativeAI
-
 from dotenv import load_dotenv, find_dotenv
-
 load_dotenv(find_dotenv(filename='.env'))
 
 client = langsmith.Client()
@@ -68,7 +61,6 @@ app.add_middleware(
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-# COHERE_RERANK_API_KEY = os.environ.get("COHERE_API_KEY")
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
@@ -104,7 +96,8 @@ answer without repeating text. Cite the sources in your answer using [number] \
 notation, where the count starts from 1. Only cite the most relevant results \
 that accurately answer the question. Place these citations at the end of the \
 sentence or paragraph that reference them - do not put them all at the end. \
-Include source URLs at the end of your answer, formatted as "[number]: [URL]".
+Include list of cited source URLs at the end of your answer, formatted as \
+"number: URL".
 """
 
 HUMAN_RESPONSE_TEMPLATE = """
@@ -176,26 +169,6 @@ def get_cohere_retriever_with_reranker(
     return compression_retriever
 
 
-# def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]:
-#     fused_scores = {}
-#     for docs in results:
-#         # Assumes the docs are returned in sorted order of relevance
-#         for rank, doc in enumerate(docs):
-#             doc_str = dumps(doc)
-#             if doc_str not in fused_scores:
-#                 fused_scores[doc_str] = 0
-#             previous_score = fused_scores[doc_str]
-#             fused_scores[doc_str] += 1 / (rank + k)
-#
-#     reranked_results = [
-#         loads(doc)
-#         for doc, score in
-#         sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-#     ]
-#     print(reranked_results)
-#     return reranked_results
-
-
 def create_retriever_chain(
         llm: LanguageModelLike,
         retriever: BaseRetriever
@@ -244,18 +217,6 @@ def format_docs(docs: Sequence[Document]) -> str:
     return "\n\n".join(formatted_docs)
 
 
-def serialize_history(request: ChatRequest) -> List[BaseMessage]:
-    chat_history = request["chat_history"] or []
-    converted_chat_history = []
-    for message in chat_history:
-        if message.get("human") is not None:
-            converted_chat_history.append(
-                HumanMessage(content=message["human"]))
-        if message.get("ai") is not None:
-            converted_chat_history.append(AIMessage(content=message["ai"]))
-    return converted_chat_history
-
-
 def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     retriever_chain = create_retriever_chain(
         llm,
@@ -275,104 +236,25 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
         ]
     )
 
-    default_response_synthesizer = response_prompt | llm
-
-    @chain
-    def cohere_response_synthesizer(input: dict) -> RunnableSerializable:
-        return response_prompt | llm.bind(source_documents=input["docs"])
-
-    # response_synthesizer = (
-    #         default_response_synthesizer.configurable_alternatives(
-    #             ConfigurableField("llm"),
-    #             default_key="openai_gpt_3_5_turbo",
-    #             anthropic_claude_3_sonnet=default_response_synthesizer,
-    #             fireworks_mixtral=default_response_synthesizer,
-    #             google_gemini_pro=default_response_synthesizer,
-    #             cohere_command=cohere_response_synthesizer,
-    #         )
-    #         | StrOutputParser()
-    # ).with_config(run_name="GenerateResponse")
-
     rag_chain = (
         RunnablePassthrough()
         | context
-        # | response_synthesizer
-        | default_response_synthesizer
+        | response_prompt
+        | llm
         | StrOutputParser()
     )
 
-    chain_with_message_history = RunnableWithMessageHistory(
+    return RunnableWithMessageHistory(
         rag_chain,
         get_session_history,
         input_messages_key="question",
         history_messages_key="chat_history",
     )
 
-    return chain_with_message_history
 
-
-import bs4
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
-from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-# Load, chunk and index the contents of the blog.
-# loader = WebBaseLoader(
-#     web_paths=("https://lilianweng.github.io/posts/2023-06-23-agent/",),
-#     bs_kwargs=dict(
-#         parse_only=bs4.SoupStrainer(
-#             class_=("post-content", "post-title", "post-header")
-#         )
-#     ),
-# )
-
-loader = WebBaseLoader("https://arxiv.org/html/2305.10601v2")
-docs = loader.load()
-
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000,
-                                               chunk_overlap=200)
-splits = text_splitter.split_documents(docs)
-vectorstore = Chroma.from_documents(
-    documents=splits,
-    embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
-
-retriever = vectorstore.as_retriever(k=5)
-
-# llm = ChatOpenAI(
-#     openai_api_key=OPENAI_API_KEY,
-#     model_name="gpt-3.5-turbo-0125",
-#     temperature=0
-# )
-
-llm = ChatCohere(
-    cohere_api_key=COHERE_API_KEY,
-    model="command-r-plus",
-    temperature=0
-)
-
-# retriever = get_pinecone_retriever_with_index(
-#     pinecone_api_key=PINECONE_API_KEY,
-#     index_name=PINECONE_INDEX_NAME,
-#     embedding_model=OpenAIEmbeddings()
-# )
-
-# TODO: add chat memory
 # TODO: add multiple index retrievement ability (Cohere with connectors)
 # TODO: add web search
 # TODO: add slack search
 # TODO: pinecone serverless, ingest confluence
-
-
-answer_chain = create_chain(llm, retriever)
-
-if __name__ == "__main__":
-    # Test run
-    answer = answer_chain.invoke(
-        {
-            'question': "What's LLM agent?",
-            'chat_history': []
-        }
-    )
-    print(answer)
+# TODO: ingest code base
+# TODO: ingest zendesk
