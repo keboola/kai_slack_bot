@@ -1,4 +1,5 @@
 import os
+import re
 from operator import itemgetter
 from typing import Dict, List, Optional, Sequence
 from src.models import ChatRequest
@@ -8,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 # from langchain_anthropic import ChatAnthropic
 
 import langsmith
-from langsmith import Client
 
 from langchain_pinecone import PineconeVectorStore
 
@@ -42,19 +42,19 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
+from langchain.memory import ConversationBufferMemory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from langchain.load import dumps, loads
 
 # from langchain_fireworks import ChatFireworks
 # from langchain_google_genai import ChatGoogleGenerativeAI
-# from langsmith import Client
 
 from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv(filename='.env'))
 
-client = Client()
+client = langsmith.Client()
 
 app = FastAPI()
 app.add_middleware(
@@ -68,29 +68,31 @@ app.add_middleware(
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
-COHERE_RERANK_API_KEY = os.environ.get("COHERE_API_KEY")
+# COHERE_RERANK_API_KEY = os.environ.get("COHERE_API_KEY")
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = 'confluence'
 
-MULTI_QUERY_TEMPLATE = """\
+SYSTEM_MULTI_QUERY_TEMPLATE = """\
 You are an AI language model assistant tasked with understanding \
 the context of a conversation and generating multiple versions of a follow-up \
 question to facilitate a comprehensive document search in a vector database. \
 Use the chat history and the provided follow-up question to create five \
 distinct queries. Each reformulated question should be standalone and crafted \
 to address potential limitations in distance-based similarity search. \
-Return these alternative questions separated by a single newline sign "\n".
+Return these alternative questions separated by a newline.
+"""
 
+HUMAN_MULTI_QUERY_TEMPLATE = """\
 Chat History:
 {chat_history}
 Follow-up question: {question}
 Alternative Questions:
 """
 
-RESPONSE_TEMPLATE = """
+SYSTEM_RESPONSE_TEMPLATE = """
 You are an AI assistant with the capability to retrieve relevant documents \
 to aid in answering user queries. First, retrieve pertinent information from a \
 specified document collection. Construct a detailed and accurate response \
@@ -98,12 +100,14 @@ based on the user's question and the retrieved documents. If there is \
 no relevant information within the context, respond with "Hmm, I'm not sure." \
 Generate a comprehensive answer of 80 words or less, using an unbiased and \
 journalistic tone. Combine information from different sources into a coherent \
-answer without repeating text. Cite the sources in your answer using \
-[document number] notation, where the count starts from 1. 
-Only cite the most relevant results that accurately answer the question. \
-Include source URLs at the end of your answer, \
-formatted as "[document number]: [URL]". 
+answer without repeating text. Cite the sources in your answer using [number] \
+notation, where the count starts from 1. Only cite the most relevant results \
+that accurately answer the question. Place these citations at the end of the \
+sentence or paragraph that reference them - do not put them all at the end. \
+Include source URLs at the end of your answer, formatted as "[number]: [URL]".
+"""
 
+HUMAN_RESPONSE_TEMPLATE = """
 Document collection is below.
 ---------------------
 {context}
@@ -155,18 +159,15 @@ def get_pinecone_retriever_with_index(
 
 def get_cohere_retriever_with_reranker(
         base_retriever: BaseRetriever,
-        cohere_api_key: str,
         model: str,
         top_n: int = 3
 ) -> ContextualCompressionRetriever:
     cohere_rerank = CohereRerank(
-        cohere_api_key=cohere_api_key,
+        cohere_api_key=COHERE_API_KEY,
         model=model,
         top_n=top_n
     )
 
-    # Create a compression retriever that uses the Cohere reranker and the
-    # base retriever
     compression_retriever = ContextualCompressionRetriever(
         base_compressor=cohere_rerank,
         base_retriever=base_retriever
@@ -175,49 +176,49 @@ def get_cohere_retriever_with_reranker(
     return compression_retriever
 
 
-def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]:
-    fused_scores = {}
-    for docs in results:
-        # Assumes the docs are returned in sorted order of relevance
-        for rank, doc in enumerate(docs):
-            doc_str = dumps(doc)
-            if doc_str not in fused_scores:
-                fused_scores[doc_str] = 0
-            previous_score = fused_scores[doc_str]
-            fused_scores[doc_str] += 1 / (rank + k)
-
-    reranked_results = [
-        loads(doc)
-        for doc, score in
-        sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
-    ]
-    print(reranked_results)
-    return reranked_results
+# def reciprocal_rank_fusion(results: List[List[Document]], k=5) -> List[Document]:
+#     fused_scores = {}
+#     for docs in results:
+#         # Assumes the docs are returned in sorted order of relevance
+#         for rank, doc in enumerate(docs):
+#             doc_str = dumps(doc)
+#             if doc_str not in fused_scores:
+#                 fused_scores[doc_str] = 0
+#             previous_score = fused_scores[doc_str]
+#             fused_scores[doc_str] += 1 / (rank + k)
+#
+#     reranked_results = [
+#         loads(doc)
+#         for doc, score in
+#         sorted(fused_scores.items(), key=lambda x: x[1], reverse=True)
+#     ]
+#     print(reranked_results)
+#     return reranked_results
 
 
 def create_retriever_chain(
         llm: LanguageModelLike,
         retriever: BaseRetriever
 ) -> Runnable:
-    MULTI_QUERY_PROMPT = PromptTemplate.from_template(MULTI_QUERY_TEMPLATE)
+    MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_MULTI_QUERY_TEMPLATE),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", HUMAN_MULTI_QUERY_TEMPLATE),
+        ]
+    )
+
     multi_query_chain = (
             MULTI_QUERY_PROMPT
             | llm
             | StrOutputParser()
+            | (lambda x: re.sub(r'\n+', '\n', x))
             | (lambda x: x.split("\n"))
-    ).with_config(run_name="ListofQuestions")
-
-    with_message_history_chain = RunnableWithMessageHistory(
-        multi_query_chain,
-        get_session_history,
-        input_messages_key="question",
-        history_messages_key="chat_history",
-    )
+    ).with_config(run_name="MultiQuery")
 
     # Cohere reranker
     compression_retriever = get_cohere_retriever_with_reranker(
         base_retriever=retriever,
-        cohere_api_key=COHERE_API_KEY,
         model="rerank-english-v3.0",
         top_n=3
     ).with_config(run_name="RetrieverRerank")
@@ -225,7 +226,7 @@ def create_retriever_chain(
     # rag_retriever = CohereRagRetriever(llm=llm)
 
     return (
-            with_message_history_chain
+            multi_query_chain
             | compression_retriever.map()
             # | rag_retriever.map().with_config(run_name="RagRetriever")
             | RunnableLambda(unique_documents)
@@ -243,7 +244,7 @@ def format_docs(docs: Sequence[Document]) -> str:
     return "\n\n".join(formatted_docs)
 
 
-def serialize_history(request: ChatRequest):
+def serialize_history(request: ChatRequest) -> List[BaseMessage]:
     chat_history = request["chat_history"] or []
     converted_chat_history = []
     for message in chat_history:
@@ -267,19 +268,18 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
         .with_config(run_name="RetrieveDocs")
     )
 
-    prompt = ChatPromptTemplate.from_messages(
+    response_prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", RESPONSE_TEMPLATE),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{question}"),
+            ("system", SYSTEM_RESPONSE_TEMPLATE),
+            ("human", HUMAN_RESPONSE_TEMPLATE),
         ]
     )
 
-    default_response_synthesizer = prompt | llm
+    default_response_synthesizer = response_prompt | llm
 
     @chain
     def cohere_response_synthesizer(input: dict) -> RunnableSerializable:
-        return prompt | llm.bind(source_documents=input["docs"])
+        return response_prompt | llm.bind(source_documents=input["docs"])
 
     # response_synthesizer = (
     #         default_response_synthesizer.configurable_alternatives(
@@ -293,13 +293,22 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     #         | StrOutputParser()
     # ).with_config(run_name="GenerateResponse")
 
-    return (
-            RunnablePassthrough()
-            | context
-            # | response_synthesizer
-            | default_response_synthesizer
-            | StrOutputParser()
+    rag_chain = (
+        RunnablePassthrough()
+        | context
+        # | response_synthesizer
+        | default_response_synthesizer
+        | StrOutputParser()
     )
+
+    chain_with_message_history = RunnableWithMessageHistory(
+        rag_chain,
+        get_session_history,
+        input_messages_key="question",
+        history_messages_key="chat_history",
+    )
+
+    return chain_with_message_history
 
 
 import bs4
@@ -329,7 +338,7 @@ vectorstore = Chroma.from_documents(
     documents=splits,
     embedding=OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY))
 
-retriever = vectorstore.as_retriever(k=4)
+retriever = vectorstore.as_retriever(k=5)
 
 # llm = ChatOpenAI(
 #     openai_api_key=OPENAI_API_KEY,

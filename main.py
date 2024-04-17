@@ -29,7 +29,7 @@ app.add_middleware(
 add_routes(
     app,
     answer_chain,
-    path="/chat",
+    path="/rag_chain",
     input_type=ChatRequest,
     config_keys=["metadata", "configurable", "tags"],
 )
@@ -39,3 +39,5 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8080)
+
+
