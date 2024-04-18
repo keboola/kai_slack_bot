@@ -63,8 +63,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
-PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
-PINECONE_INDEX_NAME = 'confluence'
+# PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
+# PINECONE_INDEX_NAME = 'confluence'
 
 SYSTEM_MULTI_QUERY_TEMPLATE = """\
 You are an AI language model assistant tasked with understanding \
@@ -77,8 +77,6 @@ Return these alternative questions separated by a newline.
 """
 
 HUMAN_MULTI_QUERY_TEMPLATE = """\
-Chat History:
-{chat_history}
 Follow-up question: {question}
 Alternative Questions:
 """
@@ -95,7 +93,8 @@ answer without repeating text. Cite the sources in your answer using [number] \
 notation, where the count starts from 1. Only cite the most relevant results \
 that accurately answer the question. Place these citations at the end of the \
 sentence that reference them - do not put them all at the end. ALWAYS include \
-list of cited source URLs at the end of your answer, formatted as "number: URL".
+list of cited source URLs at the end of your answer, formatted as \
+"Sources:\n[number] URL".
 """
 
 HUMAN_RESPONSE_TEMPLATE = """
@@ -175,7 +174,7 @@ def create_retriever_chain(
     MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_MULTI_QUERY_TEMPLATE),
-            MessagesPlaceholder(variable_name="chat_history"),
+            MessagesPlaceholder(variable_name="messages"),
             ("human", HUMAN_MULTI_QUERY_TEMPLATE),
         ]
     )
