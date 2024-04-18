@@ -6,7 +6,6 @@ from src.models import ChatRequest
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-# from langchain_anthropic import ChatAnthropic
 
 import langsmith
 
@@ -95,9 +94,8 @@ journalistic tone. Combine information from different sources into a coherent \
 answer without repeating text. Cite the sources in your answer using [number] \
 notation, where the count starts from 1. Only cite the most relevant results \
 that accurately answer the question. Place these citations at the end of the \
-sentence or paragraph that reference them - do not put them all at the end. \
-Include list of cited source URLs at the end of your answer, formatted as \
-"number: URL".
+sentence that reference them - do not put them all at the end. ALWAYS include \
+list of cited source URLs at the end of your answer, formatted as "number: URL".
 """
 
 HUMAN_RESPONSE_TEMPLATE = """
@@ -133,13 +131,14 @@ def unique_documents(documents_lists: List[List[Document]]) -> List[Document]:
 def get_pinecone_retriever_with_index(
         pinecone_api_key: str,
         index_name: str,
-        embedding_model: Embeddings
+        embedding_model: Embeddings,
+        k: int = 5
 ) -> BaseRetriever:
     pinecone_client = PineconeVectorStore(
         pinecone_api_key=pinecone_api_key,
         embedding=embedding_model,
         index_name=index_name
-        # environment=PINECONE_ENVIRONMENT
+        # environment=PINECONE_ENVIRONMENT  # for pod-based only
     )
 
     vectorstore = pinecone_client.from_existing_index(
@@ -147,7 +146,7 @@ def get_pinecone_retriever_with_index(
         embedding=embedding_model
     )
 
-    return vectorstore.as_retriever()
+    return vectorstore.as_retriever(search_kwargs={"k": k})
 
 
 def get_cohere_retriever_with_reranker(
