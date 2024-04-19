@@ -49,11 +49,11 @@ retriever = get_pinecone_retriever_with_index(
     index_name='serverless-kai-dev',
     embedding_model=CohereEmbeddings(cohere_api_key=COHERE_API_KEY,
                                      model="embed-english-v3.0"),
-    k=5
+    k=10
 )
 
 rag_chain = create_chain(llm, retriever)
-
+# print(rag_chain.get_graph().print_ascii())
 add_routes(
     app,
     rag_chain,

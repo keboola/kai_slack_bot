@@ -1,7 +1,7 @@
 import os
 import re
 from operator import itemgetter
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Any
 from src.models import ChatRequest
 
 from fastapi import FastAPI
@@ -44,6 +44,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from dotenv import load_dotenv, find_dotenv
+
 load_dotenv(find_dotenv(filename='.env'))
 
 client = langsmith.Client()
@@ -76,6 +77,7 @@ to address potential limitations in distance-based similarity search. \
 Return these alternative questions separated by a newline.
 """
 
+# Possibly add chat history from Slack thread
 HUMAN_MULTI_QUERY_TEMPLATE = """\
 Follow-up question: {question}
 Alternative Questions:
@@ -89,13 +91,15 @@ based on the user's question and the retrieved documents. If there is \
 no relevant information within the context, respond with "Hmm, I'm not sure." \
 Generate a comprehensive answer of 80 words or less, using an unbiased and \
 journalistic tone. Combine information from different sources into a coherent \
-answer without repeating text. Cite the sources in your answer using [number] \
-notation, where the count starts from 1. Only cite the most relevant results \
-that accurately answer the question. Place these citations at the end of the \
-sentence that reference them - do not put them all at the end. ALWAYS include \
-list of cited source URLs at the end of your answer, formatted as \
-"Sources:\n[number] URL".
+answer without repeating text. 
 """
+# Cite the sources in your answer using [number] \
+# notation, where the count starts from 1. Only cite the most relevant results \
+# that accurately answer the question. Place these citations at the end of the \
+# sentence that reference them - do not put them all at the end. ALWAYS include \
+# list of cited source URLs at the end of your answer, formatted as \
+# "Sources:\n[number] URL".
+# """
 
 HUMAN_RESPONSE_TEMPLATE = """
 Document collection is below.
@@ -174,7 +178,7 @@ def create_retriever_chain(
     MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_MULTI_QUERY_TEMPLATE),
-            MessagesPlaceholder(variable_name="messages"),
+            MessagesPlaceholder(variable_name="chat_history"),
             ("human", HUMAN_MULTI_QUERY_TEMPLATE),
         ]
     )
@@ -194,12 +198,9 @@ def create_retriever_chain(
         top_n=3
     ).with_config(run_name="RetrieverRerank")
 
-    # rag_retriever = CohereRagRetriever(llm=llm)
-
     return (
             multi_query_chain
             | compression_retriever.map()
-            # | rag_retriever.map().with_config(run_name="RagRetriever")
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
     ).with_config(run_name="RetrievalChainWithReranker")
@@ -215,15 +216,23 @@ def format_docs(docs: Sequence[Document]) -> str:
     return "\n\n".join(formatted_docs)
 
 
+def parse_sources(docs: Sequence[Document]) -> List[str]:
+    # Returns unique set of source URLs
+    urls = list(set(doc.metadata['source'] for doc in docs))
+    return [f"{i+1}. {url}" for i, url in enumerate(urls)]
+
+
 def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     retriever_chain = create_retriever_chain(
         llm,
         retriever,
     ).with_config(run_name="FindDocs")
 
+    source_urls = []
     context = (
         RunnablePassthrough.assign(docs=retriever_chain)
         .assign(context=lambda x: format_docs(x["docs"]))
+        .assign(sources=lambda x: source_urls.append(parse_sources(x["docs"])))
         .with_config(run_name="RetrieveDocs")
     )
 
@@ -235,11 +244,12 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     )
 
     rag_chain = (
-        RunnablePassthrough()
-        | context
-        | response_prompt
-        | llm
-        | StrOutputParser()
+            RunnablePassthrough()
+            | context
+            | response_prompt
+            | llm
+            | StrOutputParser()
+            | (lambda x: f"{x}\nSources:\n" + "\n".join(source_urls[0]))
     )
 
     return RunnableWithMessageHistory(
@@ -248,7 +258,6 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
         input_messages_key="question",
         history_messages_key="chat_history",
     )
-
 
 # TODO: add multiple index retrievement ability (Cohere with connectors)
 # TODO: add web search
