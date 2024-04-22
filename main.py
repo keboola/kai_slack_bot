@@ -53,7 +53,7 @@ retriever = get_pinecone_retriever_with_index(
 )
 
 rag_chain = create_chain(llm, retriever)
-# print(rag_chain.get_graph().print_ascii())
+
 add_routes(
     app,
     rag_chain,
