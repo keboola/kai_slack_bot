@@ -77,6 +77,15 @@ to address potential limitations in distance-based similarity search. \
 Return these alternative questions separated by a newline.
 """
 
+# SYSTEM_MULTI_QUERY_TEMPLATE = """\
+# You are an AI language model assistant tasked with understanding \
+# the context of a conversation and generating multiple versions of a follow-up \
+# question to facilitate a comprehensive document search in a vector database. \
+# Use the chat history and the provided follow-up question to create only one \
+# distinct query. Each reformulated question should be standalone and crafted \
+# to address potential limitations in distance-based similarity search.
+# """
+
 # Possibly add chat history from Slack thread
 HUMAN_MULTI_QUERY_TEMPLATE = """\
 Follow-up question: {question}
@@ -185,7 +194,7 @@ def create_retriever_chain(
 
     multi_query_chain = (
             MULTI_QUERY_PROMPT
-            | llm
+            | ChatCohere(model="command-r-plus", temperature=0)
             | StrOutputParser()
             | (lambda x: re.sub(r'\n+', '\n', x))
             | (lambda x: x.split("\n"))
@@ -201,6 +210,7 @@ def create_retriever_chain(
     return (
             multi_query_chain
             | compression_retriever.map()
+            # | compression_retriever
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
     ).with_config(run_name="RetrievalChainWithReranker")
@@ -249,7 +259,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
             | response_prompt
             | llm
             | StrOutputParser()
-            | (lambda x: f"{x}\nSources:\n" + "\n".join(source_urls[0]))
+            | (lambda x: f"{x}\n\nSources:\n" + "\n".join(source_urls[0]))
     )
 
     return RunnableWithMessageHistory(
