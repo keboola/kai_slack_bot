@@ -54,14 +54,14 @@ confluence_metadata_fields = {
 }
 
 keboola_dev_tools_metadata_fields = {
-    AttributeInfo(
-        name="data_source",
-        description="Data source of the document",
-        type="string",
-    ),
+    # AttributeInfo(
+    #     name="data_source",
+    #     description="Database name of the document: confluence, keboola_dev_docs",
+    #     type="string",
+    # ),
     AttributeInfo(
         name="header_1",
-        description="Header 1 of the document",
+        description="Header of the document",
         type="string",
     ),
     AttributeInfo(

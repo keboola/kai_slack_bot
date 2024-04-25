@@ -40,17 +40,16 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# llm = ChatCohere(
-#     cohere_api_key=COHERE_API_KEY,
-#     model="command-r-plus",
-#     temperature=0
-# )
-
-llm = ChatOpenAI(
-    openai_api_key=OPENAI_API_KEY,
-    model="gpt-4-turbo-2024-04-09",
+llm = ChatCohere(
+    cohere_api_key=COHERE_API_KEY,
+    model="command-r-plus",
     temperature=0
 )
+
+# llm = ChatOpenAI(
+#     openai_api_key=OPENAI_API_KEY,
+#     model="gpt-4-turbo-2024-04-09"
+# )
 
 embedding_model = OpenAIEmbeddings(
     openai_api_key=OPENAI_API_KEY,

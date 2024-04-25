@@ -16,8 +16,6 @@ from langchain.chains.query_constructor.base import (
     get_query_constructor_prompt,
 )
 
-from src.models import PineconeComparator
-
 
 def get_pinecone_selfquery_retriever_with_index(
         pinecone_api_key: str,
@@ -38,15 +36,16 @@ def get_pinecone_selfquery_retriever_with_index(
         document_content_description,
         metadata_field_info,
     )
-    output_parser = StructuredQueryOutputParser.from_components(
-        allowed_comparators=("eq | ne | gt | gte | lt | lte | like | in | nin")
-    )
+    output_parser = StructuredQueryOutputParser.from_components()
 
     query_constructor = (
             prompt
+            | (lambda x: x.text.replace(
+                "eq | ne | gt | gte | lt | lte | contain | like | in | nin",
+                'ne | gt | gte | lt | lte | in | nin'))
             | llm
             | output_parser
-    )
+    ).with_config(run_name="SelfQueryConstructor")
 
     return SelfQueryRetriever(
         query_constructor=query_constructor,

@@ -194,7 +194,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
             | response_prompt
             | llm
             | StrOutputParser()
-            | (lambda x: f"{x}\n\nSources:\n" + "\n".join(source_urls[0]))
+            | (lambda x: f"{x}\n\nSources:\n" + "\n".join(source_urls[0]) if source_urls[0] else "")
     )
 
     return RunnableWithMessageHistory(
@@ -204,6 +204,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
         history_messages_key="chat_history",
     )
 
+# TODO: Tailor FewShotPrompt examples for self-query
 # TODO: add multiple index retrievement ability (Cohere with connectors)
 # TODO: add web search
 # TODO: add slack search
