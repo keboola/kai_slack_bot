@@ -1,49 +1,28 @@
 import os
 import re
-from operator import itemgetter
-from typing import Dict, List, Optional, Sequence, Any
-from src.models import ChatRequest
-
+import langsmith
+from dotenv import load_dotenv, find_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import langsmith
-
-from langchain_pinecone import PineconeVectorStore
-
-from langchain_cohere import ChatCohere, CohereEmbeddings, CohereRagRetriever, \
-    CohereRerank
-from langchain.retrievers import ContextualCompressionRetriever
-
-from langchain_core.documents import Document
+from typing import List, Sequence
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.embeddings import Embeddings
-from langchain_core.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-    PromptTemplate,
-)
-from langchain_core.pydantic_v1 import BaseModel
+from langchain_core.chat_history import BaseChatMessageHistory
+from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import (
-    ConfigurableField,
     Runnable,
-    RunnableBranch,
     RunnableLambda,
     RunnablePassthrough,
-    RunnableSequence,
-    chain, RunnableSerializable,
 )
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
+from langchain_cohere import ChatCohere
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain.memory import ConversationBufferMemory
 from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from src.client import get_cohere_retriever_with_reranker
 
-from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv(filename='.env'))
 
@@ -60,21 +39,19 @@ app.add_middleware(
 )
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
-
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
-# PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
-# PINECONE_INDEX_NAME = 'confluence'
+
 
 SYSTEM_MULTI_QUERY_TEMPLATE = """\
 You are an AI language model assistant tasked with understanding \
-the context of a conversation and generating multiple versions of a follow-up \
+the context of a conversation and generating standalone versions of a follow-up \
 question to facilitate a comprehensive document search in a vector database. \
-Use the chat history and the provided follow-up question to create five \
-distinct queries. Each reformulated question should be standalone and crafted \
-to address potential limitations in distance-based similarity search. \
-Return these alternative questions separated by a newline.
+If a query contains only one subject or aspect, generate a single standalone \
+question. For queries with multiple subjects or aspects, create multiple \
+questions per each aspect. Each reformulated question should be standalone \
+and crafted to address potential limitations in distance-based similarity \
+search. Return these alternative questions separated by a newline.
 """
 
 # SYSTEM_MULTI_QUERY_TEMPLATE = """\
@@ -89,7 +66,7 @@ Return these alternative questions separated by a newline.
 # Possibly add chat history from Slack thread
 HUMAN_MULTI_QUERY_TEMPLATE = """\
 Follow-up question: {question}
-Alternative Questions:
+Alternative Question:
 """
 
 SYSTEM_RESPONSE_TEMPLATE = """
@@ -140,46 +117,6 @@ def unique_documents(documents_lists: List[List[Document]]) -> List[Document]:
     return unique_docs
 
 
-def get_pinecone_retriever_with_index(
-        pinecone_api_key: str,
-        index_name: str,
-        embedding_model: Embeddings,
-        k: int = 5
-) -> BaseRetriever:
-    pinecone_client = PineconeVectorStore(
-        pinecone_api_key=pinecone_api_key,
-        embedding=embedding_model,
-        index_name=index_name
-        # environment=PINECONE_ENVIRONMENT  # for pod-based only
-    )
-
-    vectorstore = pinecone_client.from_existing_index(
-        index_name=index_name,
-        embedding=embedding_model
-    )
-
-    return vectorstore.as_retriever(search_kwargs={"k": k})
-
-
-def get_cohere_retriever_with_reranker(
-        base_retriever: BaseRetriever,
-        model: str,
-        top_n: int = 3
-) -> ContextualCompressionRetriever:
-    cohere_rerank = CohereRerank(
-        cohere_api_key=COHERE_API_KEY,
-        model=model,
-        top_n=top_n
-    )
-
-    compression_retriever = ContextualCompressionRetriever(
-        base_compressor=cohere_rerank,
-        base_retriever=base_retriever
-    )
-
-    return compression_retriever
-
-
 def create_retriever_chain(
         llm: LanguageModelLike,
         retriever: BaseRetriever
@@ -187,7 +124,7 @@ def create_retriever_chain(
     MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_MULTI_QUERY_TEMPLATE),
-            MessagesPlaceholder(variable_name="chat_history"),
+            # MessagesPlaceholder(variable_name="chat_history"),
             ("human", HUMAN_MULTI_QUERY_TEMPLATE),
         ]
     )
@@ -202,6 +139,7 @@ def create_retriever_chain(
 
     # Cohere reranker
     compression_retriever = get_cohere_retriever_with_reranker(
+        cohere_api_key=COHERE_API_KEY,
         base_retriever=retriever,
         model="rerank-english-v3.0",
         top_n=3
@@ -210,7 +148,6 @@ def create_retriever_chain(
     return (
             multi_query_chain
             | compression_retriever.map()
-            # | compression_retriever
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
     ).with_config(run_name="RetrievalChainWithReranker")
@@ -218,18 +155,16 @@ def create_retriever_chain(
 
 def format_docs(docs: Sequence[Document]) -> str:
     formatted_docs = []
-    # print(docs)
     for i, doc in enumerate(docs):
-        doc_string = f"<doc id='{i}' source='{doc.metadata['source']}'>\
-        {doc.page_content}</doc>"
+        doc_string = f"<doc id='{i}'>{doc.page_content}</doc>"
         formatted_docs.append(doc_string)
     return "\n\n".join(formatted_docs)
 
 
 def parse_sources(docs: Sequence[Document]) -> List[str]:
-    # Returns unique set of source URLs
-    urls = list(set(doc.metadata['source'] for doc in docs))
-    return [f"{i+1}. {url}" for i, url in enumerate(urls)]
+    urls = list(set(doc.metadata['source_url'] for doc in docs))
+    if urls:
+        return [f"{i+1}. {url}" for i, url in enumerate(urls)]
 
 
 def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
@@ -272,6 +207,5 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
 # TODO: add multiple index retrievement ability (Cohere with connectors)
 # TODO: add web search
 # TODO: add slack search
-# TODO: pinecone serverless, ingest confluence
 # TODO: ingest code base
 # TODO: ingest zendesk

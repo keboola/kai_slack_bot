@@ -1,28 +1,30 @@
 """Main entrypoint for the app."""
 import os
 
-import langsmith
 from src.models import ChatRequest
-from src.chain import create_chain, get_pinecone_retriever_with_index
+from src.chain import create_chain
+from src.client import get_pinecone_selfquery_retriever_with_index
+from src.metadata_fields import (
+    confluence_metadata_fields,
+    keboola_dev_tools_metadata_fields
+)
+
+import langsmith
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langserve import add_routes
 
-from langchain_cohere import ChatCohere, CohereEmbeddings
-# from langchain.embeddings import OpenAIEmbeddings
-# from langchain.vectorstores import Chroma
-# from langchain_pinecone import PineconeVectorStore
+from langchain_cohere import ChatCohere
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
 
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(filename='.env'))
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
-
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
-# PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
-# PINECONE_INDEX_NAME = 'confluence'
+PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME")
 
 APP_PORT = int(os.environ.get("APP_PORT"))
 
@@ -38,18 +40,32 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-llm = ChatCohere(
-    cohere_api_key=COHERE_API_KEY,
-    model="command-r-plus",
+# llm = ChatCohere(
+#     cohere_api_key=COHERE_API_KEY,
+#     model="command-r-plus",
+#     temperature=0
+# )
+
+llm = ChatOpenAI(
+    openai_api_key=OPENAI_API_KEY,
+    model="gpt-4-turbo-2024-04-09",
     temperature=0
 )
 
-retriever = get_pinecone_retriever_with_index(
+embedding_model = OpenAIEmbeddings(
+    openai_api_key=OPENAI_API_KEY,
+    model="text-embedding-3-small"
+)
+
+document_content_description = "Developer documentation for developers who are working with Keboola programmatically"
+retriever = get_pinecone_selfquery_retriever_with_index(
     pinecone_api_key=PINECONE_API_KEY,
-    index_name='serverless-kai-dev',
-    embedding_model=CohereEmbeddings(cohere_api_key=COHERE_API_KEY,
-                                     model="embed-english-v3.0"),
-    k=10
+    index_name='kai-knowledge-base',
+    llm=llm,
+    embedding_model=embedding_model,
+    document_content_description=document_content_description,
+    metadata_field_info=keboola_dev_tools_metadata_fields,
+    return_k=5
 )
 
 rag_chain = create_chain(llm, retriever)
