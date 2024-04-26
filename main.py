@@ -16,7 +16,7 @@ from langserve import add_routes
 
 from langchain_cohere import ChatCohere
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-
+from langchain_pinecone import PineconeVectorStore
 
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv(filename='.env'))
@@ -56,16 +56,28 @@ embedding_model = OpenAIEmbeddings(
     model="text-embedding-3-small"
 )
 
-document_content_description = "Developer documentation for developers who are working with Keboola programmatically"
-retriever = get_pinecone_selfquery_retriever_with_index(
+# TODO
+# document_content_description = """\
+# Developer documentation for developers who are working with Keboola programmatically
+# """
+#
+# retriever = get_pinecone_selfquery_retriever_with_index(
+#     pinecone_api_key=PINECONE_API_KEY,
+#     index_name='kai-knowledge-base',
+#     llm=llm,
+#     embedding_model=embedding_model,
+#     document_content_description=document_content_description,
+#     metadata_field_info=keboola_dev_tools_metadata_fields,
+#     return_k=5
+# )
+
+vectorstore = PineconeVectorStore(
     pinecone_api_key=PINECONE_API_KEY,
-    index_name='kai-knowledge-base',
-    llm=llm,
-    embedding_model=embedding_model,
-    document_content_description=document_content_description,
-    metadata_field_info=keboola_dev_tools_metadata_fields,
-    return_k=5
+    embedding=embedding_model,
+    index_name=PINECONE_INDEX_NAME
 )
+
+retriever = vectorstore.as_retriever(k=5)
 
 rag_chain = create_chain(llm, retriever)
 

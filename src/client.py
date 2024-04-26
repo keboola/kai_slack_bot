@@ -31,18 +31,22 @@ def get_pinecone_selfquery_retriever_with_index(
         embedding=embedding_model,
         index_name=index_name
     )
-
+    pinecone_translator = PineconeTranslator()
     prompt = get_query_constructor_prompt(
         document_content_description,
         metadata_field_info,
+        examples=None,
+        allowed_comparators=pinecone_translator.allowed_comparators,
+        allowed_operators=pinecone_translator.allowed_operators,
+        schema_prompt=None,
     )
     output_parser = StructuredQueryOutputParser.from_components()
 
     query_constructor = (
             prompt
-            | (lambda x: x.text.replace(
-                "eq | ne | gt | gte | lt | lte | contain | like | in | nin",
-                'ne | gt | gte | lt | lte | in | nin'))
+            # | (lambda x: x.text.replace(
+            #     "eq | ne | gt | gte | lt | lte | contain | like | in | nin",
+            #     'ne | gt | gte | lt | lte | in | nin'))
             | llm
             | output_parser
     ).with_config(run_name="SelfQueryConstructor")
@@ -52,7 +56,7 @@ def get_pinecone_selfquery_retriever_with_index(
         vectorstore=vectorstore,
         structured_query_translator=PineconeTranslator(),
         search_kwargs={"k": return_k},
-        enable_limit=True,
+        enable_limit=False,
         verbose=True
     )
 
