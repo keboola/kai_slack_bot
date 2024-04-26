@@ -70,13 +70,26 @@ def unique_documents(documents_lists: List[List[Document]]) -> List[Document]:
     return unique_docs
 
 
-def retrieve_full_page(docs: List[Document]):
+def retrieve_full_page(docs: List[Document]) -> List[Document]:
     urls = list(set(doc.metadata['source_url'] for doc in docs))
-    loader = AsyncHtmlLoader(urls)
+    loader = AsyncHtmlLoader(urls, encoding='utf-8')
     html_docs = loader.load()
     html2text = Html2TextTransformer()
     docs_transformed = html2text.transform_documents(html_docs)
-    return docs_transformed
+
+    cleaned_docs = []
+    for doc in docs_transformed:
+        if doc.metadata['source'].startswith('https://developers.keboola.com/'):
+            # Clean the page content and update the document's metadata
+            cleaned_content = re.sub(
+                pattern=r'(?s)^DEVELOPERS DOCS.*?dbt\n\n',
+                repl='',
+                string=doc.page_content
+            )
+            doc.page_content = cleaned_content
+            cleaned_docs.append(doc)
+
+    return cleaned_docs
 
 
 def create_retriever_chain(
