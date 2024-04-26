@@ -1,6 +1,46 @@
 # flake8: noqa
 from langchain_core.prompts import PromptTemplate
 
+# ---------------------------- CHAIN PROMPTS -----------------------------------
+SYSTEM_MULTI_QUERY_TEMPLATE = """\
+You are an AI language model assistant tasked with understanding \
+the context of a conversation and generating standalone versions of a follow-up \
+question to facilitate a comprehensive document search in a vector database. \
+If a query contains only one subject or aspect, generate a single standalone \
+question. For queries with multiple subjects or aspects, create multiple \
+questions per each aspect. Each reformulated question should be standalone \
+and crafted to address potential limitations in distance-based similarity \
+search. Return these alternative questions separated by a newline.
+"""
+
+# TODO: add chat history from Slack thread
+HUMAN_MULTI_QUERY_TEMPLATE = """\
+Follow-up question: {question}
+Alternative Question:
+"""
+
+SYSTEM_RESPONSE_TEMPLATE = """
+You are an AI assistant with the capability to retrieve relevant documents \
+to aid in answering user queries. First, retrieve pertinent information from a \
+specified document collection. Construct a detailed and accurate response \
+based on the user's question and the retrieved documents. If there is \
+no relevant information within the context, respond with "Hmm, I'm not sure." \
+Generate a comprehensive answer of 80 words or less, using an unbiased and \
+journalistic tone. Combine information from different sources into a coherent \
+answer without repeating text. 
+"""
+
+HUMAN_RESPONSE_TEMPLATE = """
+Document collection is below.
+---------------------
+{context}
+---------------------
+Given the context information and not prior knowledge, answer the question.
+Question: {question}
+Answer:
+"""
+
+# ---------------------------- SELF-QUERY PROMPTS ------------------------------
 SONG_DATA_SOURCE = """\
 ```json
 {{
