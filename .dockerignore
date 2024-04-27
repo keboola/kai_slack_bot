@@ -4,6 +4,6 @@
 *.pyc
 *.json
 .env
-data/*
+data/
 original version/
 old_main.py
