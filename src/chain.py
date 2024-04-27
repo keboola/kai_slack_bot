@@ -6,11 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from typing import List, Sequence
-
-from langchain_community.document_loaders import AsyncHtmlLoader
-from langchain_community.document_transformers import Html2TextTransformer
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.runnables import (
@@ -20,11 +16,14 @@ from langchain_core.runnables import (
 )
 
 from langchain_cohere import ChatCohere
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from langchain_community.document_loaders import AsyncHtmlLoader
+from langchain_community.document_transformers import Html2TextTransformer
 
+# from src.client import get_pinecone_selfquery_retriever_with_index
 from src.client import get_cohere_retriever_with_reranker
 from src.prompts import (
     SYSTEM_MULTI_QUERY_TEMPLATE,
@@ -49,13 +48,7 @@ app.add_middleware(
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
-
-
-# store = {}
-# def get_session_history(session_id: str) -> BaseChatMessageHistory:
-#     if session_id not in store:
-#         store[session_id] = ChatMessageHistory()
-#     return store[session_id]
+PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME")
 
 
 def unique_documents(documents_lists: List[List[Document]]) -> List[Document]:
@@ -106,7 +99,7 @@ def parse_sources(docs: Sequence[Document]) -> List[str]:
 
 
 def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
-    MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
+    multi_query_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_MULTI_QUERY_TEMPLATE),
             MessagesPlaceholder(variable_name="chat_history"),
@@ -115,15 +108,14 @@ def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
     )
 
     multi_query_chain = (
-            MULTI_QUERY_PROMPT
+            multi_query_prompt
             | ChatCohere(model="command-r-plus", temperature=0)
             | StrOutputParser()
             | (lambda x: re.sub(r'\n+', '\n', x))
             | (lambda x: x.split("\n"))
     ).with_config(run_name="MultiQuery")
 
-    # Cohere reranker
-    compression_retriever = get_cohere_retriever_with_reranker(
+    cohere_retriever_with_reranker = get_cohere_retriever_with_reranker(
         cohere_api_key=COHERE_API_KEY,
         base_retriever=retriever,
         model="rerank-english-v3.0",
@@ -132,7 +124,7 @@ def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
 
     return (
             multi_query_chain
-            | compression_retriever.map()
+            | cohere_retriever_with_reranker.map()
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
             | RunnableLambda(retrieve_full_page)
@@ -160,7 +152,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
         ]
     )
 
-    rag_chain = (
+    return (
             RunnablePassthrough()
             | context
             | response_prompt
@@ -168,14 +160,44 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
             | StrOutputParser()
             | (lambda x: f"{x}\n\nSources:\n" + "\n".join(source_urls[0])
                 if source_urls[0] else "")  # attach sources
-    )
-    return rag_chain
-    # return RunnableWithMessageHistory(
-    #     rag_chain,
-    #     get_session_history,
-    #     input_messages_key="question",
-    #     history_messages_key="chat_history",
-    # )
+    ).with_config(run_name="RagFullChain")
+
+
+# Configure language models and vector store
+llm = ChatCohere(
+    cohere_api_key=COHERE_API_KEY,
+    model="command-r-plus",
+    temperature=0
+)
+embedding_model = OpenAIEmbeddings(
+    openai_api_key=OPENAI_API_KEY,
+    model="text-embedding-3-small"
+)
+vectorstore = PineconeVectorStore(
+    pinecone_api_key=PINECONE_API_KEY,
+    embedding=embedding_model,
+    index_name=PINECONE_INDEX_NAME
+)
+retriever = vectorstore.as_retriever(k=5)
+
+# Initialise rag chain
+rag_chain = create_chain(llm, retriever)
+
+
+# TODO: Complete Self-query retriever
+# document_content_description = """\
+# Developer documentation for developers who are working with Keboola programmatically
+# """
+#
+# retriever = get_pinecone_selfquery_retriever_with_index(
+#     pinecone_api_key=PINECONE_API_KEY,
+#     index_name='kai-knowledge-base',
+#     llm=llm,
+#     embedding_model=embedding_model,
+#     document_content_description=document_content_description,
+#     metadata_field_info=keboola_dev_tools_metadata_fields,
+#     return_k=5
+# )
 
 # TODO: Come up with a list of examples: input query – output structured_request
 # TODO: Tailor FewShotPrompt examples for self-query

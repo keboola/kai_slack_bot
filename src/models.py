@@ -1,8 +1,8 @@
+from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel
-from typing import List, Optional, Dict
-from enum import Enum
+from typing import List, Optional
 
 
 class ChatRequest(BaseModel):
     question: str
-    chat_history: Optional[List[Dict[str, str]]]
+    chat_history: Optional[List[HumanMessage | AIMessage]]

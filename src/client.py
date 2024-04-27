@@ -1,4 +1,5 @@
-from typing import Dict, Sequence
+from typing import Dict, Sequence, List
+
 from langchain.chains.query_constructor.base import AttributeInfo
 from langchain_core.language_models import BaseLanguageModel
 

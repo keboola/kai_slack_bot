@@ -13,7 +13,6 @@ and crafted to address potential limitations in distance-based similarity \
 search. Return these alternative questions separated by a newline.
 """
 
-# TODO: add chat history from Slack thread
 HUMAN_MULTI_QUERY_TEMPLATE = """\
 Follow-up question: {question}
 Alternative Question:

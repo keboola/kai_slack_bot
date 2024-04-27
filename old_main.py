@@ -56,20 +56,7 @@ embedding_model = OpenAIEmbeddings(
     model="text-embedding-3-small"
 )
 
-# TODO: Complete Self-query retriever
-# document_content_description = """\
-# Developer documentation for developers who are working with Keboola programmatically
-# """
-#
-# retriever = get_pinecone_selfquery_retriever_with_index(
-#     pinecone_api_key=PINECONE_API_KEY,
-#     index_name='kai-knowledge-base',
-#     llm=llm,
-#     embedding_model=embedding_model,
-#     document_content_description=document_content_description,
-#     metadata_field_info=keboola_dev_tools_metadata_fields,
-#     return_k=5
-# )
+
 
 vectorstore = PineconeVectorStore(
     pinecone_api_key=PINECONE_API_KEY,
