@@ -1,7 +1,8 @@
 """Main entrypoint for the app."""
 import os
+import requests
 from dotenv import load_dotenv, find_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from slack_bolt import App
 from slack_bolt.adapter.fastapi import SlackRequestHandler
@@ -115,14 +116,22 @@ def handle_message_events(body, say, context, client):
     )
 
     # Invoke RAG chain with message as input
-    chat_request = ChatRequest(
-        question=event['text'],
-        chat_history=serialize_thread_history(thread_history))
-    response = rag_chain.invoke(chat_request)
+    try:
+        endpoint = f"http://0.0.0.0:{APP_PORT}/rag-chain/stream_log/"
+        chat_request = ChatRequest(
+            question=event['text'],
+            chat_history=serialize_thread_history(thread_history))
+        # response = rag_chain.invoke(chat_request)
+        response = requests.post(endpoint, json=chat_request)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Post message response back to Slack
-    client.chat_postMessage(channel=channel_id, thread_ts=thread_ts,
-                            text=f"Response: {response}")
+    client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text=response
+    )
 
 
 if __name__ == "__main__":

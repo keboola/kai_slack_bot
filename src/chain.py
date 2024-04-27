@@ -33,7 +33,6 @@ from src.prompts import (
     HUMAN_RESPONSE_TEMPLATE
 )
 
-
 load_dotenv(find_dotenv(filename='.env'))
 
 client = langsmith.Client()
@@ -50,6 +49,7 @@ app.add_middleware(
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
+
 
 # store = {}
 # def get_session_history(session_id: str) -> BaseChatMessageHistory:
@@ -91,6 +91,20 @@ def retrieve_full_page(docs: List[Document]) -> List[Document]:
     return cleaned_docs
 
 
+def format_docs(docs: Sequence[Document]) -> str:
+    formatted_docs = []
+    for i, doc in enumerate(docs):
+        doc_string = f"<doc id='{i}'>{doc.page_content}</doc>"
+        formatted_docs.append(doc_string)
+    return "\n\n".join(formatted_docs)
+
+
+def parse_sources(docs: Sequence[Document]) -> List[str]:
+    urls = list(set(doc.metadata['source'] for doc in docs))
+    if urls:
+        return [f"{i + 1}. {url}" for i, url in enumerate(urls)]
+
+
 def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
     MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
         [
@@ -124,20 +138,6 @@ def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
             | RunnableLambda(retrieve_full_page)
             .with_config(run_name="RetrieveFullPage")
     ).with_config(run_name="RetrievalChainWithReranker")
-
-
-def format_docs(docs: Sequence[Document]) -> str:
-    formatted_docs = []
-    for i, doc in enumerate(docs):
-        doc_string = f"<doc id='{i}'>{doc.page_content}</doc>"
-        formatted_docs.append(doc_string)
-    return "\n\n".join(formatted_docs)
-
-
-def parse_sources(docs: Sequence[Document]) -> List[str]:
-    urls = list(set(doc.metadata['source'] for doc in docs))
-    if urls:
-        return [f"{i+1}. {url}" for i, url in enumerate(urls)]
 
 
 def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
