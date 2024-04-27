@@ -56,7 +56,7 @@ embedding_model = OpenAIEmbeddings(
     model="text-embedding-3-small"
 )
 
-# TODO
+# TODO: Complete Self-query retriever
 # document_content_description = """\
 # Developer documentation for developers who are working with Keboola programmatically
 # """

@@ -16,3 +16,4 @@ jmespath==1.0.1
 bs4==0.0.2
 lark==1.1.9
 html2text==2024.2.26
+slack-bolt==1.18.1

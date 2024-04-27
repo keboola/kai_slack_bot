@@ -23,7 +23,7 @@ from langchain_cohere import ChatCohere
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from src.client import get_cohere_retriever_with_reranker
 from src.prompts import (
@@ -37,7 +37,6 @@ from src.prompts import (
 load_dotenv(find_dotenv(filename='.env'))
 
 client = langsmith.Client()
-
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -52,11 +51,11 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 
-store = {}
-def get_session_history(session_id: str) -> BaseChatMessageHistory:
-    if session_id not in store:
-        store[session_id] = ChatMessageHistory()
-    return store[session_id]
+# store = {}
+# def get_session_history(session_id: str) -> BaseChatMessageHistory:
+#     if session_id not in store:
+#         store[session_id] = ChatMessageHistory()
+#     return store[session_id]
 
 
 def unique_documents(documents_lists: List[List[Document]]) -> List[Document]:
@@ -92,14 +91,11 @@ def retrieve_full_page(docs: List[Document]) -> List[Document]:
     return cleaned_docs
 
 
-def create_retriever_chain(
-        llm: LanguageModelLike,
-        retriever: BaseRetriever
-) -> Runnable:
+def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
     MULTI_QUERY_PROMPT = ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_MULTI_QUERY_TEMPLATE),
-            # MessagesPlaceholder(variable_name="chat_history"),
+            MessagesPlaceholder(variable_name="chat_history"),
             ("human", HUMAN_MULTI_QUERY_TEMPLATE),
         ]
     )
@@ -146,8 +142,7 @@ def parse_sources(docs: Sequence[Document]) -> List[str]:
 
 def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
     retriever_chain = create_retriever_chain(
-        llm,
-        retriever,
+        retriever
     ).with_config(run_name="FindDocs")
 
     source_urls = []
@@ -172,15 +167,15 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
             | llm
             | StrOutputParser()
             | (lambda x: f"{x}\n\nSources:\n" + "\n".join(source_urls[0])
-                if source_urls[0] else "")
+                if source_urls[0] else "")  # attach sources
     )
-
-    return RunnableWithMessageHistory(
-        rag_chain,
-        get_session_history,
-        input_messages_key="question",
-        history_messages_key="chat_history",
-    )
+    return rag_chain
+    # return RunnableWithMessageHistory(
+    #     rag_chain,
+    #     get_session_history,
+    #     input_messages_key="question",
+    #     history_messages_key="chat_history",
+    # )
 
 # TODO: Come up with a list of examples: input query – output structured_request
 # TODO: Tailor FewShotPrompt examples for self-query
