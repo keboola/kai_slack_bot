@@ -3,7 +3,6 @@
 /venv
 *.pyc
 *.json
-.env
 data/
 original version/
 old_main.py

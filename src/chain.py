@@ -79,7 +79,7 @@ def retrieve_full_page(docs: List[Document]) -> List[Document]:
                 string=doc.page_content
             )
             doc.page_content = cleaned_content
-            cleaned_docs.append(doc)
+        cleaned_docs.append(doc)
 
     return cleaned_docs
 
@@ -93,7 +93,8 @@ def format_docs(docs: Sequence[Document]) -> str:
 
 
 def parse_sources(docs: Sequence[Document]) -> List[str]:
-    urls = list(set(doc.metadata['source'] for doc in docs))
+    # source in case of using AsyncHtmlLoader, source_url otherwise
+    urls = list(set(doc.metadata['source_url'] for doc in docs))
     if urls:
         return [f"{i + 1}. {url}" for i, url in enumerate(urls)]
 
@@ -127,8 +128,8 @@ def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
             | cohere_retriever_with_reranker.map()
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
-            | RunnableLambda(retrieve_full_page)
-            .with_config(run_name="RetrieveFullPage")
+            # | RunnableLambda(retrieve_full_page)
+            # .with_config(run_name="RetrieveFullPage")
     ).with_config(run_name="RetrievalChainWithReranker")
 
 
@@ -206,3 +207,4 @@ rag_chain = create_chain(llm, retriever)
 # TODO: add slack search
 # TODO: ingest code base
 # TODO: ingest zendesk
+# TODO: retrieve confluence full pagse

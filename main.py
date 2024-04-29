@@ -1,9 +1,10 @@
 """Main entrypoint for the app."""
 import os
-import requests
 from dotenv import load_dotenv, find_dotenv
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+
+from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from src.chain import rag_chain
 from src.models import ChatRequest
@@ -48,6 +49,9 @@ async def slack_events_endpoint(req: Request):
 
 
 if __name__ == "__main__":
+    # Socket mode for local testing
+    # SocketModeHandler(slack_app.app, os.environ.get("SLACK_APP_TOKEN")).start()
+
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=APP_PORT)
