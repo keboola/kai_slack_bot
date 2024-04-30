@@ -13,4 +13,4 @@ ENV PORT=3000
 EXPOSE $PORT
 
 # Run the application
-CMD uvicorn app:api --host=0.0.0.0 --port=$PORT
+CMD ["python", "main.py"]
