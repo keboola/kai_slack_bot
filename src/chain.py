@@ -34,7 +34,7 @@ from src.prompts import (
 
 load_dotenv(find_dotenv(filename='.env'))
 
-client = langsmith.Client()
+#client = langsmith.Client()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,

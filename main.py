@@ -19,7 +19,7 @@ SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
 APP_PORT = int(os.environ.get("APP_PORT"))
 
-client = langsmith.Client()
+#client = langsmith.Client()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
