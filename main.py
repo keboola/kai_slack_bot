@@ -16,10 +16,10 @@ from langserve import add_routes
 load_dotenv(find_dotenv(filename='.env'))
 
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
-SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
+SLACK_SIGNING_SECRET = os.environ.get("SIGNING_SECRET")
 APP_PORT = int(os.environ.get("APP_PORT"))
 
-#client = langsmith.Client()
+#client = langsmith.Client()  
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
