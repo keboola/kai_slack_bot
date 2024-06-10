@@ -17,7 +17,7 @@ from langchain_core.runnables import (
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import OpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.document_transformers import Html2TextTransformer
@@ -150,7 +150,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
 
 
 # Configure language models and vector store
-llm = LanguageModelLike(
+llm = OpenAI(
     openai_api_key=OPENAI_API_KEY,
     model="gpt-4o",
     temperature=0
