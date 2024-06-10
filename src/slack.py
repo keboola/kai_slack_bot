@@ -8,7 +8,7 @@ from slack_bolt.adapter.fastapi import SlackRequestHandler
 from typing import List
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
-from src.chain import rag_chain
+from src.chain import qa
 from src.models import ChatRequest
 
 load_dotenv(find_dotenv(filename='.env'))
@@ -108,7 +108,7 @@ class SlackApp:
         )
 
         try:
-            response_message = rag_chain.invoke(chat_request.dict())
+            response_message = qa.invoke(chat_request.dict())
         except Exception as e:
             response_message = "I'm sorry, some error occured. \
             Let's try that again."
