@@ -8,7 +8,7 @@ from slack_bolt.adapter.fastapi import SlackRequestHandler
 from typing import List
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
-from src.chain import qa
+from src.chain import rag_chain
 from src.models import ChatRequest
 
 load_dotenv(find_dotenv(filename='.env'))

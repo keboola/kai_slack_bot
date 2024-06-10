@@ -53,7 +53,7 @@ llm = ChatOpenAI(
 )
 
 
-qa = RetrievalQA.from_chain_type(
+rag_chain = RetrievalQA.from_chain_type(
     llm=llm,
     chain_type="refine",
     retriever=retriever
