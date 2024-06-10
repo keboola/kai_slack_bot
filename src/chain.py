@@ -45,7 +45,7 @@ vectorstore = PineconeVectorStore(
 )
 retriever = vectorstore.as_retriever(k=5)
 
-llm = OpenAI(
+llm = ChatOpenAI(
     openai_api_key=os.environ['OPENAI_API_KEY'],
     model_name='gpt-4o',
     temperature=0.0
