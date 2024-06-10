@@ -15,7 +15,6 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
-from langchain_cohere import ChatCohere
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import OpenAIEmbeddings
@@ -23,8 +22,7 @@ from langchain_pinecone import PineconeVectorStore
 from langchain_community.document_loaders import AsyncHtmlLoader
 from langchain_community.document_transformers import Html2TextTransformer
 
-# from src.client import get_pinecone_selfquery_retriever_with_index
-from src.client import get_cohere_retriever_with_reranker
+from src.client import get_pinecone_selfquery_retriever_with_index
 from src.prompts import (
     SYSTEM_MULTI_QUERY_TEMPLATE,
     HUMAN_MULTI_QUERY_TEMPLATE,
@@ -34,7 +32,6 @@ from src.prompts import (
 
 load_dotenv(find_dotenv(filename='.env'))
 
-#client = langsmith.Client()
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -46,7 +43,6 @@ app.add_middleware(
 )
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME")
 
@@ -93,7 +89,6 @@ def format_docs(docs: Sequence[Document]) -> str:
 
 
 def parse_sources(docs: Sequence[Document]) -> List[str]:
-    # source in case of using AsyncHtmlLoader, source_url otherwise
     urls = list(set(doc.metadata['source_url'] for doc in docs))
     if urls:
         return [f"{i + 1}. {url}" for i, url in enumerate(urls)]
@@ -110,27 +105,17 @@ def create_retriever_chain(retriever: BaseRetriever) -> Runnable:
 
     multi_query_chain = (
             multi_query_prompt
-            | ChatCohere(model="command-r-plus", temperature=0)
             | StrOutputParser()
             | (lambda x: re.sub(r'\n+', '\n', x))
             | (lambda x: x.split("\n"))
     ).with_config(run_name="MultiQuery")
 
-    cohere_retriever_with_reranker = get_cohere_retriever_with_reranker(
-        cohere_api_key=COHERE_API_KEY,
-        base_retriever=retriever,
-        model="rerank-english-v3.0",
-        top_n=3
-    ).with_config(run_name="RetrieverRerank")
-
     return (
             multi_query_chain
-            | cohere_retriever_with_reranker.map()
+            | retriever.map()
             | RunnableLambda(unique_documents)
             .with_config(run_name="FlattenUnique")
-            # | RunnableLambda(retrieve_full_page)
-            # .with_config(run_name="RetrieveFullPage")
-    ).with_config(run_name="RetrievalChainWithReranker")
+    ).with_config(run_name="RetrievalChain")
 
 
 def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
@@ -165,9 +150,9 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
 
 
 # Configure language models and vector store
-llm = ChatCohere(
-    cohere_api_key=COHERE_API_KEY,
-    model="command-r-plus",
+llm = LanguageModelLike(
+    openai_api_key=OPENAI_API_KEY,
+    model="gpt-4o",
     temperature=0
 )
 embedding_model = OpenAIEmbeddings(
@@ -183,7 +168,6 @@ retriever = vectorstore.as_retriever(k=5)
 
 # Initialise rag chain
 rag_chain = create_chain(llm, retriever)
-
 
 # TODO: Complete Self-query retriever
 # document_content_description = """\
