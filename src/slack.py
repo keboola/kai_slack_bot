@@ -117,5 +117,5 @@ class SlackApp:
         client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text=response_message.result
+            text=response_message['result']
         )
