@@ -109,6 +109,7 @@ class SlackApp:
 
         try:
             response_message = rag_chain.invoke(user_message)
+            response_message = response_message['result']
         except Exception as e:
             response_message = "I'm sorry, some error occured. \
             Let's try that again."
@@ -117,5 +118,5 @@ class SlackApp:
         client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text=response_message['result']
+            text=response_message
         )
