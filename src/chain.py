@@ -150,7 +150,7 @@ def create_chain(llm: LanguageModelLike, retriever: BaseRetriever) -> Runnable:
 
 
 # Configure language models and vector store
-llm = OpenAI(
+llm = LanguageModelLike(
     openai_api_key=OPENAI_API_KEY,
     model="gpt-4o",
     temperature=0
