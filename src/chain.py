@@ -45,13 +45,11 @@ vectorstore = PineconeVectorStore(
 )
 retriever = vectorstore.as_retriever(k=5)
 
-
-llm = ChatOpenAI(
+llm = OpenAI(
     openai_api_key=os.environ['OPENAI_API_KEY'],
     model_name='gpt-4o',
     temperature=0.0
 )
-
 
 rag_chain = RetrievalQA.from_chain_type(
     llm=llm,
