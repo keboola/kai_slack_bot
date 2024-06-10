@@ -108,7 +108,7 @@ class SlackApp:
         )
 
         try:
-            response_message = qa.invoke(chat_request.dict())
+            response_message = rag_chain.invoke(chat_request.dict())
         except Exception as e:
             response_message = "I'm sorry, some error occured. \
             Let's try that again."
