@@ -102,13 +102,13 @@ class SlackApp:
         )
 
         # Invoke RAG chain with message as input
-        chat_request = ChatRequest(
-            question=re.sub(r'<@[^>]+>', '', user_message),
-            chat_history=self._serialize_thread_history(thread_history)
-        )
+        #chat_request = ChatRequest(
+        #    question=re.sub(r'<@[^>]+>', '', user_message),
+        #    chat_history=self._serialize_thread_history(thread_history)
+        #)
 
         try:
-            response_message = rag_chain.invoke(chat_request.question)
+            response_message = rag_chain.invoke(user_message)
         except Exception as e:
             response_message = "I'm sorry, some error occured. \
             Let's try that again."
